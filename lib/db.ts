@@ -112,6 +112,28 @@ export async function getOpenSessionToday(
     : null;
 }
 
+export async function getSessionById(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionId: string,
+): Promise<StoredSession | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("id, started_at, messages, landed")
+    .eq("user_id", userId)
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error) throw new Error(`Lecture de la session : ${error.message}`);
+  return data
+    ? {
+        id: data.id as string,
+        startedAt: data.started_at as string,
+        messages: (data.messages ?? []) as ChatMessage[],
+        landed: data.landed as boolean,
+      }
+    : null;
+}
+
 export async function createSession(
   supabase: SupabaseClient,
   userId: string,

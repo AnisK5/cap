@@ -81,12 +81,6 @@ export interface ChatMessage {
   content: string;
 }
 
-export interface SessionLog {
-  id: string;
-  date: string; // ISO
-  transcript: ChatMessage[];
-}
-
 // Une note de contexte : info mémo capturée par l'IA, qui ne mérite pas d'être
 // un cap mais vaut la peine d'être retenue (tâche ponctuelle, truc en attente,
 // idée, contexte utile). Affichée en toggle dans Aujourd'hui.
