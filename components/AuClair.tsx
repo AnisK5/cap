@@ -7,29 +7,30 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChatMessage, CapState } from "@/lib/types";
-import type { Reconciliation } from "@/lib/store";
+import type { ChatMessage } from "@/lib/types";
+import type { StoredState } from "@/lib/store";
+
+export type LandedPayload = StoredState & { note?: string | null };
 
 interface Props {
   active: boolean; // l'onglet « Au clair » est-il affiché ? (on démarre à ce moment)
-  state: CapState;
   onClose: () => void;
-  onLanded: (r: Reconciliation) => void;
-  onLive: (r: Reconciliation) => void; // maj en direct de la structure pendant la conv
+  onLanded: (s: LandedPayload) => void;
+  onLive: (s: LandedPayload) => void; // maj en direct de la structure pendant la conv
 }
 
 type Phase = "talking" | "landing" | "reconciling" | "landed";
 
-async function streamCap(
+async function streamChat(
   body: object,
   onDelta: (chunk: string) => void,
 ): Promise<string> {
-  const res = await fetch("/api/cap", {
+  const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.body) {
+  if (!res.ok || !res.body) {
     const j = await res.json().catch(() => ({}));
     throw new Error(j.error || "Pas de réponse.");
   }
@@ -46,13 +47,22 @@ async function streamCap(
   return full;
 }
 
-export default function AuClair({
-  active,
-  state,
-  onClose,
-  onLanded,
-  onLive,
-}: Props) {
+async function reconcile(
+  sessionId: string,
+  live: boolean,
+): Promise<LandedPayload> {
+  const res = await fetch("/api/reconcile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId, live }),
+  });
+  const j = (await res.json()) as LandedPayload & { error?: string };
+  if (!res.ok || j.error) throw new Error(j.error || "Erreur de réconciliation.");
+  return j;
+}
+
+export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [phase, setPhase] = useState<Phase>("talking");
@@ -69,80 +79,88 @@ export default function AuClair({
 
   useLayoutEffect(scrollDown, [messages, scrollDown]);
 
-  // Ouverture à chaud : l'assistant parle en premier.
-  const startConversation = useCallback(() => {
-    started.current = true;
-    setError(null);
-    setPhase("talking");
-    setMessages([{ role: "assistant", content: "" }]);
-    setBusy(true);
-    streamCap({ messages: [], state }, (chunk) =>
-      setMessages((m) => {
-        const next = [...m];
-        next[next.length - 1] = {
-          role: "assistant",
-          content: next[next.length - 1].content + chunk,
-        };
-        return next;
-      }),
-    )
-      .catch((e) => setError((e as Error).message))
-      .finally(() => {
-        setBusy(false);
-        inputRef.current?.focus();
-      });
-  }, [state]);
+  const appendDelta = useCallback((chunk: string) => {
+    setMessages((m) => {
+      const next = [...m];
+      next[next.length - 1] = {
+        role: "assistant",
+        content: next[next.length - 1].content + chunk,
+      };
+      return next;
+    });
+  }, []);
 
-  // On ne démarre que quand l'onglet devient actif (jamais au chargement).
+  // Ouverture à chaud : l'assistant parle en premier.
+  const startConversation = useCallback(
+    (sid: string) => {
+      setError(null);
+      setPhase("talking");
+      setMessages([{ role: "assistant", content: "" }]);
+      setBusy(true);
+      streamChat({ sessionId: sid, messages: [] }, appendDelta)
+        .catch((e) => setError((e as Error).message))
+        .finally(() => {
+          setBusy(false);
+          inputRef.current?.focus();
+        });
+    },
+    [appendDelta],
+  );
+
+  // Au premier affichage de l'onglet : reprend la session ouverte du jour
+  // (conversation intacte après un refresh), sinon en démarre une.
   useEffect(() => {
-    if (active && !started.current) startConversation();
+    if (!active || started.current) return;
+    started.current = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/session");
+        const { session } = await res.json();
+        if (session && session.messages.length > 0) {
+          setSessionId(session.id);
+          setMessages(session.messages as ChatMessage[]);
+          inputRef.current?.focus();
+          return;
+        }
+        let sid: string | null = session?.id ?? null;
+        if (!sid) {
+          const created = await fetch("/api/session", { method: "POST" });
+          sid = (await created.json()).session.id as string;
+        }
+        setSessionId(sid);
+        startConversation(sid);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    })();
   }, [active, startConversation]);
 
-  const reset = useCallback(() => {
-    started.current = false;
+  const reset = useCallback(async () => {
     setDraft("");
-    startConversation();
+    try {
+      const created = await fetch("/api/session", { method: "POST" });
+      const sid = (await created.json()).session.id as string;
+      setSessionId(sid);
+      startConversation(sid);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }, [startConversation]);
 
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || busy) return;
+    if (!text || busy || !sessionId) return;
     setDraft("");
     setError(null);
-    const base: ChatMessage[] = [
-      ...messages,
-      { role: "user", content: text },
-      { role: "assistant", content: "" },
-    ];
-    setMessages(base);
+    const convo: ChatMessage[] = [...messages, { role: "user", content: text }];
+    setMessages([...convo, { role: "assistant", content: "" }]);
     setBusy(true);
     try {
-      const convo = base.slice(0, -1);
-      const assistantText = await streamCap({ messages: convo, state }, (chunk) =>
-        setMessages((m) => {
-          const next = [...m];
-          next[next.length - 1] = {
-            role: "assistant",
-            content: next[next.length - 1].content + chunk,
-          };
-          return next;
-        }),
-      );
-      // Maj EN DIRECT (fire-and-forget) : la structure/carte se met à jour
-      // pendant qu'on parle, sans attendre l'atterrissage.
-      const full: ChatMessage[] = [
-        ...convo,
-        { role: "assistant", content: assistantText },
-      ];
-      fetch("/api/reconcile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: full, state }),
-      })
-        .then((res) => res.json())
-        .then((r) => {
-          if (r && !r.error) onLive(r);
-        })
+      await streamChat({ sessionId, messages: convo }, appendDelta);
+      // Maj EN DIRECT (fire-and-forget) : le serveur relit la session en DB,
+      // fusionne et écrit — l'état renvoyé fait foi.
+      reconcile(sessionId, true)
+        .then(onLive)
         .catch(() => {});
     } catch (e) {
       setError((e as Error).message);
@@ -150,50 +168,28 @@ export default function AuClair({
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [draft, busy, messages, state, onLive]);
+  }, [draft, busy, sessionId, messages, appendDelta, onLive]);
 
-  // Atterrissage : message de clôture + réconciliation.
+  // Atterrissage : message de clôture + réconciliation (priorités du jour).
   const land = useCallback(async () => {
-    if (busy || phase !== "talking") return;
+    if (busy || phase !== "talking" || !sessionId) return;
     setError(null);
     setPhase("landing");
     setBusy(true);
-    const withLanding: ChatMessage[] = [
-      ...messages,
-      { role: "assistant", content: "" },
-    ];
-    setMessages(withLanding);
+    const convo = messages;
+    setMessages([...convo, { role: "assistant", content: "" }]);
     try {
-      const convo = messages;
-      const finalMsg = await streamCap(
-        { messages: convo, state, landing: true },
-        (chunk) =>
-          setMessages((m) => {
-            const next = [...m];
-            next[next.length - 1] = {
-              role: "assistant",
-              content: next[next.length - 1].content + chunk,
-            };
-            return next;
-          }),
+      await streamChat(
+        { sessionId, messages: convo, landing: true },
+        appendDelta,
       );
-
       setPhase("reconciling");
-      const full: ChatMessage[] = [
-        ...convo,
-        { role: "assistant", content: finalMsg },
-      ];
-      const res = await fetch("/api/reconcile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: full, state }),
-      });
-      const r = (await res.json()) as Reconciliation & { error?: string };
-      if (r.error) throw new Error(r.error);
+      const landed = await reconcile(sessionId, false);
       setPhase("landed");
       setBusy(false);
+      started.current = false; // la prochaine ouverture repartira sur une session neuve
       // Laisse voir le dernier message une seconde avant de recomposer l'accueil.
-      setTimeout(() => onLanded(r), 1100);
+      setTimeout(() => onLanded(landed), 1100);
     } catch (e) {
       // Échec d'enregistrement : ne PAS faire croire que c'est sauvé.
       setError(
@@ -202,7 +198,7 @@ export default function AuClair({
       setPhase("talking");
       setBusy(false);
     }
-  }, [busy, phase, messages, state, onLanded]);
+  }, [busy, phase, sessionId, messages, appendDelta, onLanded]);
 
   // Échap pour revenir à l'accueil sans atterrir.
   useEffect(() => {
@@ -227,10 +223,7 @@ export default function AuClair({
         </button>
       </div>
 
-      <div
-        ref={scrollRef}
-        className="w-full flex-1 overflow-y-auto pb-4"
-      >
+      <div ref={scrollRef} className="w-full flex-1 overflow-y-auto pb-4">
         <div className="flex flex-col gap-6 py-4">
           {messages.map((m, i) => (
             <Bubble key={i} role={m.role} content={m.content} busy={busy} />
@@ -242,7 +235,7 @@ export default function AuClair({
           )}
           {phase === "landed" && (
             <p className="animate-fade text-center text-sm text-cap">
-              C'est clair. Va exécuter.
+              C&apos;est clair. Va exécuter.
             </p>
           )}
           {error && (
@@ -284,7 +277,7 @@ export default function AuClair({
               disabled={!canLand}
               className="rounded-full border border-cap/30 bg-cap-soft px-5 py-2 text-sm font-medium text-cap-ink transition-all hover:border-cap/60 disabled:cursor-not-allowed disabled:opacity-30"
             >
-              C'est assez clair → mes priorités du jour
+              C&apos;est assez clair → mes priorités du jour
             </button>
           </div>
         </div>

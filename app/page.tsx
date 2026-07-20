@@ -2,20 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  applyReconciliation,
-  todayISO,
+  markLegacyImported,
+  readLegacyState,
   useCap,
-  type Reconciliation,
 } from "@/lib/store";
-import type { ContextNote, Objective, Priority } from "@/lib/types";
-import AuClair from "@/components/AuClair";
+import { todayISO } from "@/lib/merge";
+import type { CapState, ContextNote, Objective, Priority } from "@/lib/types";
+import AuClair, { type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
 import { CapTrack, deadlineChip, isHard } from "@/components/CapTrack";
 
 type View = "clair" | "today" | "carte";
 
 export default function Home() {
-  const { state, update, ready } = useCap();
+  const { state, ready, hasServerState, replace, save } = useCap();
   const [view, setView] = useState<View>("today");
   const [justLanded, setJustLanded] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -24,38 +24,38 @@ export default function Home() {
 
   const onDeleteCap = useCallback(
     (id: string) => {
-      update({ ...state, objectives: state.objectives.filter((o) => o.id !== id) });
+      save({ ...state, objectives: state.objectives.filter((o) => o.id !== id) });
     },
-    [state, update],
+    [state, save],
   );
 
   const onDeleteNote = useCallback(
     (id: string) => {
-      update({
+      save({
         ...state,
         contextNotes: (state.contextNotes ?? []).filter((n) => n.id !== id),
       });
     },
-    [state, update],
+    [state, save],
   );
 
   const onEditCapTitle = useCallback(
     (id: string, title: string) => {
       if (!title.trim()) return;
-      update({
+      save({
         ...state,
         objectives: state.objectives.map((o) =>
           o.id === id ? { ...o, title: title.trim() } : o,
         ),
       });
     },
-    [state, update],
+    [state, save],
   );
 
   const onEditFlowTitle = useCallback(
     (objId: string, flowId: string, title: string) => {
       if (!title.trim()) return;
-      update({
+      save({
         ...state,
         objectives: state.objectives.map((o) =>
           o.id === objId
@@ -69,7 +69,7 @@ export default function Home() {
         ),
       });
     },
-    [state, update],
+    [state, save],
   );
 
   // Invocation clavier, façon Raycast / ChatGPT macOS.
@@ -85,26 +85,26 @@ export default function Home() {
   }, []);
 
   const onLanded = useCallback(
-    (r: Reconciliation) => {
-      update(applyReconciliation(state, r));
+    (landed: LandedPayload) => {
+      replace(landed);
       setView("today");
       setJustLanded(true);
       setTimeout(() => setJustLanded(false), 1400);
     },
-    [state, update],
+    [replace],
   );
 
-  // Mise à jour EN DIRECT pendant la conversation (structure + compréhension,
-  // pas les priorités du jour) + petit encart de ce qui a changé.
+  // Mise à jour EN DIRECT pendant la conversation : le serveur a déjà fusionné
+  // et écrit — on remplace le miroir local + petit encart de ce qui a changé.
   const onLive = useCallback(
-    (r: Reconciliation) => {
-      update(applyReconciliation(state, r, { live: true }));
-      if (r.note?.trim()) {
-        setToast(r.note.trim());
+    (live: LandedPayload) => {
+      replace(live);
+      if (live.note?.trim()) {
+        setToast(live.note.trim());
         setTimeout(() => setToast(null), 4000);
       }
     },
-    [state, update],
+    [replace],
   );
 
   const objById = useMemo(() => {
@@ -125,6 +125,8 @@ export default function Home() {
   return (
     <main className="mx-auto min-h-full max-w-6xl px-6 pb-32 pt-16 sm:px-8 sm:pt-24">
       <Header view={view} onView={setView} />
+
+      {!hasServerState && <ImportBanner onImport={save} />}
 
       {view === "today" && (
         <div className="mx-auto max-w-2xl">
@@ -186,7 +188,6 @@ export default function Home() {
       <div className="mx-auto max-w-2xl">
         <AuClair
           active={view === "clair"}
-          state={state}
           onClose={() => setView("today")}
           onLanded={onLanded}
           onLive={onLive}
@@ -200,6 +201,38 @@ export default function Home() {
         </div>
       )}
     </main>
+  );
+}
+
+// Migration depuis l'ère localStorage : proposé une seule fois, quand le
+// serveur n'a encore rien et qu'un ancien état local existe.
+function ImportBanner({ onImport }: { onImport: (s: CapState) => void }) {
+  const [legacy, setLegacy] = useState<CapState | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    setLegacy(readLegacyState());
+  }, []);
+
+  if (!legacy || done) return null;
+
+  return (
+    <div className="animate-rise mx-auto mb-8 max-w-2xl rounded-2xl border border-cap/30 bg-cap-soft/60 p-5">
+      <p className="text-[0.95rem] leading-relaxed text-cap-ink">
+        J&apos;ai retrouvé tes données d&apos;avant (caps, compréhension,
+        priorités) dans ce navigateur. On les importe dans ton compte&nbsp;?
+      </p>
+      <button
+        onClick={() => {
+          onImport(legacy);
+          markLegacyImported();
+          setDone(true);
+        }}
+        className="mt-3 rounded-full bg-ink px-5 py-2 text-sm font-medium text-canvas"
+      >
+        Importer mes données
+      </button>
+    </div>
   );
 }
 
@@ -228,7 +261,7 @@ function Header({
         <Tab active={view === "clair"} onClick={() => onView("clair")}>
           <span className="flex items-center gap-1.5">
             Au clair
-            <kbd className="rounded bg-sink px-1 py-0.5 text-[0.65rem] text-faint">
+            <kbd className="hidden rounded bg-sink px-1 py-0.5 text-[0.65rem] text-faint sm:inline">
               ⌘K
             </kbd>
           </span>
