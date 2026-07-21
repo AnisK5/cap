@@ -13,7 +13,7 @@ const admin = createClient(url, env.SUPABASE_SERVICE_ROLE_KEY);
 const email = 'krari.anis@gmail.com';
 const password = crypto.randomUUID() + 'Aa1!';
 
-let { data: created, error } = await admin.auth.admin.createUser({
+let { error } = await admin.auth.admin.createUser({
   email, password, email_confirm: true,
 });
 if (error && !/already/i.test(error.message)) throw error;
