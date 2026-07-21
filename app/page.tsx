@@ -10,7 +10,6 @@ import { sameLocalDay } from "@/lib/merge";
 import type { CapState, ContextNote, Objective, Priority } from "@/lib/types";
 import AuClair, { type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
-import { CapTrack, deadlineChip } from "@/components/CapTrack";
 
 type View = "clair" | "today" | "carte";
 
@@ -39,34 +38,13 @@ export default function Home() {
     [state, save],
   );
 
-  const onEditCapTitle = useCallback(
-    (id: string, title: string) => {
-      if (!title.trim()) return;
+  // Édition manuelle : toute modification d'un cap (titres, jalons cochés /
+  // réordonnés / ajoutés, états de flux, cible, horizon) passe par ici.
+  const onUpdateObjective = useCallback(
+    (id: string, up: (o: Objective) => Objective) => {
       save({
         ...state,
-        objectives: state.objectives.map((o) =>
-          o.id === id ? { ...o, title: title.trim() } : o,
-        ),
-      });
-    },
-    [state, save],
-  );
-
-  const onEditFlowTitle = useCallback(
-    (objId: string, flowId: string, title: string) => {
-      if (!title.trim()) return;
-      save({
-        ...state,
-        objectives: state.objectives.map((o) =>
-          o.id === objId
-            ? {
-                ...o,
-                flows: (o.flows ?? []).map((f) =>
-                  f.id === flowId ? { ...f, title: title.trim() } : f,
-                ),
-              }
-            : o,
-        ),
+        objectives: state.objectives.map((o) => (o.id === id ? up(o) : o)),
       });
     },
     [state, save],
@@ -132,16 +110,6 @@ export default function Home() {
 
       {view === "today" && (
         <div className="mx-auto max-w-2xl">
-          {state.lastNote && state.priorities.length > 0 && (
-            <p
-              className={`mb-8 font-display text-lg italic leading-snug text-muted ${
-                justLanded ? "animate-rise" : "animate-fade"
-              }`}
-            >
-              {state.lastNote}
-            </p>
-          )}
-
           {state.priorities.length === 0 ? (
             <EmptyState
               first={state.objectives.length === 0}
@@ -149,17 +117,23 @@ export default function Home() {
             />
           ) : (
             <>
-              {stale && (
-                <p className="mb-6 text-sm text-faint">
-                  Ces priorités datent d&apos;un autre jour. Un point avec Cap
-                  pour les rafraîchir&nbsp;?
-                </p>
-              )}
+              {/* Chaque élément porte son sens : d'où viennent ces priorités,
+                  et sont-elles fraîches. */}
+              <p
+                className={`mb-5 text-xs uppercase tracking-[0.18em] ${
+                  stale ? "text-gold" : "text-faint"
+                }`}
+              >
+                {stale
+                  ? "Posées un autre jour — un point pour les rafraîchir ?"
+                  : "Posées aujourd'hui avec Cap"}
+              </p>
               <PriorityHero
                 priority={first}
                 objective={
                   first.objectiveId ? objById.get(first.objectiveId) : undefined
                 }
+                justLanded={justLanded}
               />
               {rest.length > 0 && <NextList items={rest} objById={objById} />}
               <div className="mt-12 text-center sm:hidden">
@@ -172,6 +146,19 @@ export default function Home() {
               </div>
             </>
           )}
+
+          {state.lastNote && state.priorities.length > 0 && (
+            <div className="mt-14 border-t border-line/70 pt-5">
+              <p
+                className={`text-sm italic leading-relaxed text-faint ${
+                  justLanded ? "animate-rise" : ""
+                }`}
+              >
+                <span className="not-italic">Cap, en fin de session :</span>{" "}
+                «&nbsp;{state.lastNote}&nbsp;»
+              </p>
+            </div>
+          )}
           {state.contextNotes && state.contextNotes.length > 0 && (
             <ContextSection notes={state.contextNotes} onDelete={onDeleteNote} />
           )}
@@ -183,8 +170,7 @@ export default function Home() {
           objectives={state.objectives}
           onOpen={openClair}
           onDeleteCap={onDeleteCap}
-          onEditCapTitle={onEditCapTitle}
-          onEditFlowTitle={onEditFlowTitle}
+          onUpdateObjective={onUpdateObjective}
         />
       )}
 
@@ -218,13 +204,14 @@ export default function Home() {
 function PriorityHero({
   priority,
   objective,
+  justLanded,
 }: {
   priority: Priority;
   objective?: Objective;
+  justLanded: boolean;
 }) {
-  const chip = objective ? deadlineChip(objective) : null;
   return (
-    <section className={"animate-rise"}>
+    <section className={justLanded ? "animate-rise" : "animate-fade"}>
       <h2 className="font-display text-3xl font-medium leading-tight tracking-tight text-ink sm:text-4xl">
         {priority.title}
       </h2>
@@ -234,41 +221,19 @@ function PriorityHero({
         </p>
       )}
       {objective && (
-        <div className="mt-7">
-          <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-            <span className="min-w-0 truncate">
-              <span className="text-faint">→&nbsp;</span>
-              {objective.icon && (
-                <span className="mr-1">{objective.icon}</span>
-              )}
-              <span className="text-muted">{objective.title}</span>
-              {priority.via && (
-                <span className="text-faint">
-                  &nbsp;·&nbsp;{priority.via}
-                </span>
-              )}
+        <p className="mt-5 text-sm text-faint">
+          fait avancer&nbsp;:{" "}
+          <span className="text-muted">
+            {objective.icon && `${objective.icon} `}
+            {objective.title}
+          </span>
+          {priority.via && (
+            <span>
+              {" "}
+              · flux «&nbsp;{priority.via}&nbsp;»
             </span>
-            {chip ? (
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                  chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
-                }`}
-              >
-                {chip.label}
-              </span>
-            ) : objective.unlocks ? (
-              <span
-                className="shrink-0 truncate rounded-full bg-gold-soft px-2 py-0.5 text-xs font-medium text-gold"
-                title={objective.unlocks}
-              >
-                ★ {objective.unlocks.length > 32
-                  ? objective.unlocks.slice(0, 30) + "…"
-                  : objective.unlocks}
-              </span>
-            ) : null}
-          </div>
-          <CapTrack objective={objective} size="lg" />
-        </div>
+          )}
+        </p>
       )}
     </section>
   );
