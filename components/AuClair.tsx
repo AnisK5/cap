@@ -212,7 +212,9 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
   const canLand = messages.some((m) => m.role === "user") && phase === "talking";
 
   return (
-    <div className={`${active ? "flex" : "hidden"} h-[calc(100vh-13rem)] flex-col`}>
+    <div
+      className={`${active ? "flex" : "hidden"} h-[calc(100dvh-13rem)] flex-col pb-[env(safe-area-inset-bottom)]`}
+    >
       <div className="mb-2 flex items-center justify-end">
         <button
           onClick={reset}

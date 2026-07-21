@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { Objective, Step } from "@/lib/types";
-import { deadlineChip, isHard, momentumLabel } from "./CapTrack";
+import { deadlineChip, momentumLabel } from "./CapTrack";
 
 // ─────────────────────────────────────────────────────────────────────────
 // UNE seule frise partagée : ta vie / ton trimestre. Chaque cap = un groupe
@@ -25,16 +25,15 @@ const PALETTE = [
   "#b0843a", // gold
 ];
 
+// Seuls les FLUX deviennent des barres sur la frise ; les étapes (jalons)
+// s'affichent en fil de progression (StepTrail), pas en durées.
 interface Bar {
   id: string;
   title: string;
-  kind: "step" | "flow";
   fromWeek: number;
   toWeek: number;
   placed: boolean;
-  emphasis?: boolean;
-  faded?: boolean;
-  waiting?: boolean;
+  waiting: boolean;
   voie?: string;
 }
 
@@ -42,7 +41,7 @@ function collectBars(o: Objective): Bar[] {
   return (o.flows ?? []).map((f) => {
     const from = f.fromWeek ?? 0;
     return {
-      id: f.id, title: f.title, kind: "flow" as const,
+      id: f.id, title: f.title,
       fromWeek: from, toWeek: f.toWeek ?? from,
       placed: f.fromWeek !== undefined,
       waiting: !!f.waitingOn, voie: f.voie,
@@ -304,8 +303,9 @@ function ObjectiveGroup({
 
   return (
     <div className="group mt-5 border-t border-line/70 pt-3 first:mt-2 first:border-t-0">
-      {/* En-tête de l'objectif */}
-      <div className="mb-1.5 flex items-center gap-2.5">
+      {/* En-tête de l'objectif — posé AU-DESSUS des lignes de mois (z-10 +
+          fond), sinon target/horizon flottent sur la timeline. */}
+      <div className="relative z-10 mb-1.5 flex items-center gap-2.5 bg-surface">
         <span className="text-base leading-none">{o.icon ?? "◆"}</span>
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
         <InlineEdit
@@ -416,7 +416,7 @@ function ObjectiveGroup({
 function StepTrail({ steps, color }: { steps: Step[]; color: string }) {
   const currentIdx = steps.findIndex((s) => !s.done);
   return (
-    <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 pl-1 text-xs">
+    <div className="relative z-10 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 bg-surface pl-1 text-xs">
       {steps.map((s, i) => {
         const isCurrent = i === currentIdx && currentIdx >= 0;
         const isDone = !!s.done;
@@ -460,7 +460,6 @@ function BarRow({
 }) {
   const left = bar.fromWeek * WEEK_W;
   const width = Math.max(WEEK_W, (bar.toWeek - bar.fromWeek + 1) * WEEK_W) - 6;
-  const isStep = bar.kind === "step";
 
   return (
     <div className="flex items-center" style={{ height: ROW_H }}>
@@ -472,42 +471,23 @@ function BarRow({
         <InlineEdit
           value={bar.title}
           onChange={onEdit}
-          className={
-            bar.emphasis
-              ? "font-semibold text-ink"
-              : bar.faded
-                ? "text-faint line-through"
-                : "text-muted"
-          }
+          className="text-muted"
           inputClassName="text-xs text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
         />
       </div>
       <div className="relative" style={{ width: N * WEEK_W, height: "100%" }}>
         <div
-          className="absolute top-1/2 flex items-center rounded-full"
+          className="absolute top-1/2 rounded-full"
           style={{
             left: left + 3,
             width,
-            height: isStep ? 14 : 10,
+            height: 10,
             transform: "translateY(-50%)",
             background: bar.placed ? color : "transparent",
-            opacity: bar.faded ? 0.3 : bar.emphasis ? 1 : isStep ? 0.85 : 0.45,
-            border: !bar.placed
-              ? "1.5px dashed var(--color-line)"
-              : bar.waiting
-                ? "1.5px dashed rgba(255,255,255,0.7)"
-                : "none",
+            opacity: 0.45,
+            border: !bar.placed ? "1.5px dashed var(--color-line)" : "none",
           }}
-        >
-          {bar.emphasis && (
-            <span
-              className="ml-1.5 rounded-full px-1.5 py-0.5 text-[0.55rem] font-semibold uppercase text-canvas"
-              style={{ background: "rgba(0,0,0,0.28)" }}
-            >
-              ici
-            </span>
-          )}
-        </div>
+        />
       </div>
     </div>
   );

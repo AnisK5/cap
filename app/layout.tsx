@@ -18,11 +18,21 @@ export const metadata: Metadata = {
   title: "Cap — vois où tu vas",
   description:
     "Un espace de réflexion qui élimine le doute sur la manière d'investir ton temps. Tes 2-3 priorités du jour, pourquoi elles comptent, et vers quoi elles t'emmènent.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Cap",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
   themeColor: "#f7f6f2",
   maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
