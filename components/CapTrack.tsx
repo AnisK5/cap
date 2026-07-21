@@ -2,6 +2,21 @@
 
 import type { Objective } from "@/lib/types";
 
+// L'identité VISUELLE d'un cap : une couleur stable (ordre de création),
+// partagée par toutes les vues — l'œil apprend « indigo = job ».
+export const CAP_PALETTE = [
+  "var(--color-cap)", // indigo
+  "#2e6f63", // teal
+  "#c4703b", // terracotta
+  "#8a5cf6", // violet
+  "#b0843a", // gold
+];
+
+export function capColor(objectives: Objective[], id?: string): string {
+  const i = id ? objectives.findIndex((o) => o.id === id) : -1;
+  return i >= 0 ? CAP_PALETTE[i % CAP_PALETTE.length] : "var(--color-cap)";
+}
+
 // Fraction d'avancée = étapes franchies / total. Honnête (discret, pas un %
 // inventé) : si pas d'étapes, on ne feint rien (piste en pointillé).
 function stepFrac(o: Objective): number | null {

@@ -10,6 +10,7 @@ import { sameLocalDay } from "@/lib/merge";
 import type { CapState, ContextNote, Objective, Priority } from "@/lib/types";
 import AuClair, { type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
+import { capColor } from "@/components/CapTrack";
 
 type View = "clair" | "today" | "carte";
 
@@ -33,6 +34,20 @@ export default function Home() {
       save({
         ...state,
         contextNotes: (state.contextNotes ?? []).filter((n) => n.id !== id),
+      });
+    },
+    [state, save],
+  );
+
+  // Cocher une priorité : le geste-récompense. Le ✓ persiste en DB, la
+  // suivante devient le héros, et le coach lira ce qui a RÉELLEMENT été fait.
+  const onTogglePriority = useCallback(
+    (id: string) => {
+      save({
+        ...state,
+        priorities: state.priorities.map((p) =>
+          p.id === id ? { ...p, done: !p.done } : p,
+        ),
       });
     },
     [state, save],
@@ -100,7 +115,12 @@ export default function Home() {
     return <main className="min-h-full" />;
   }
 
-  const [first, ...rest] = state.priorities;
+  // Numéro stable (ordre posé avec Cap) ; les non-cochées passent devant.
+  const numbered = state.priorities.map((p, i) => ({ p, n: i + 1 }));
+  const pending = numbered.filter(({ p }) => !p.done);
+  const doneItems = numbered.filter(({ p }) => p.done);
+  const hero = pending[0];
+  const next = pending.slice(1);
 
   return (
     <main className="mx-auto min-h-full max-w-6xl px-6 pb-40 pt-12 sm:px-8 sm:pb-32 sm:pt-24">
@@ -128,14 +148,33 @@ export default function Home() {
                   ? "Posées un autre jour — un point pour les rafraîchir ?"
                   : "Posées aujourd'hui avec Cap"}
               </p>
-              <PriorityHero
-                priority={first}
-                objective={
-                  first.objectiveId ? objById.get(first.objectiveId) : undefined
-                }
-                justLanded={justLanded}
-              />
-              {rest.length > 0 && <NextList items={rest} objById={objById} />}
+              {hero ? (
+                <PriorityHero
+                  priority={hero.p}
+                  number={hero.n}
+                  color={capColor(state.objectives, hero.p.objectiveId)}
+                  objective={
+                    hero.p.objectiveId
+                      ? objById.get(hero.p.objectiveId)
+                      : undefined
+                  }
+                  onToggle={() => onTogglePriority(hero.p.id)}
+                  justLanded={justLanded}
+                />
+              ) : (
+                <AllDone />
+              )}
+              {next.length > 0 && (
+                <NextList
+                  items={next}
+                  objById={objById}
+                  objectives={state.objectives}
+                  onToggle={onTogglePriority}
+                />
+              )}
+              {doneItems.length > 0 && (
+                <DoneList items={doneItems} onToggle={onTogglePriority} />
+              )}
               <div className="mt-12 text-center sm:hidden">
                 <button
                   onClick={openClair}
@@ -201,40 +240,115 @@ export default function Home() {
 // LA priorité du jour en héros : au moment « je re-doute », l'œil tombe
 // dessus en une seconde. Pas de boîte — l'espace et l'échelle font le poids.
 
+// Le rond à cocher : le geste-récompense, assez gros pour le pouce.
+function CheckCircle({
+  done,
+  color,
+  onToggle,
+  size = "md",
+}: {
+  done?: boolean;
+  color: string;
+  onToggle: () => void;
+  size?: "md" | "lg";
+}) {
+  const px = size === "lg" ? "h-9 w-9 text-lg" : "h-7 w-7 text-sm";
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={done ? "finalement pas faite" : "c'est fait !"}
+      className={`flex shrink-0 items-center justify-center rounded-full border-2 transition-all ${px} ${
+        done ? "text-canvas" : "bg-surface text-transparent hover:scale-105"
+      }`}
+      style={{
+        borderColor: color,
+        background: done ? color : undefined,
+      }}
+    >
+      ✓
+    </button>
+  );
+}
+
+function NumberBadge({
+  n,
+  color,
+  size = "md",
+}: {
+  n: number;
+  color: string;
+  size?: "md" | "lg";
+}) {
+  const px = size === "lg" ? "h-8 w-8 text-base" : "h-6 w-6 text-xs";
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-full font-display font-semibold text-canvas ${px}`}
+      style={{ background: color }}
+    >
+      {n}
+    </span>
+  );
+}
+
 function PriorityHero({
   priority,
+  number,
+  color,
   objective,
+  onToggle,
   justLanded,
 }: {
   priority: Priority;
+  number: number;
+  color: string;
   objective?: Objective;
+  onToggle: () => void;
   justLanded: boolean;
 }) {
   return (
-    <section className={justLanded ? "animate-rise" : "animate-fade"}>
-      <h2 className="font-display text-3xl font-medium leading-tight tracking-tight text-ink sm:text-4xl">
-        {priority.title}
-      </h2>
-      {priority.why && (
-        <p className="mt-3 max-w-lg text-[1.02rem] leading-relaxed text-muted">
-          — {priority.why}
-        </p>
+    <section
+      className={`relative overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-sm ${
+        justLanded ? "animate-rise" : "animate-fade"
+      }`}
+      style={{ borderLeft: `5px solid ${color}` }}
+    >
+      {/* L'icône du cap, en grand filigrane : l'identité visuelle du cap. */}
+      {objective?.icon && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -bottom-4 -right-2 select-none text-[6.5rem] opacity-[0.09]"
+        >
+          {objective.icon}
+        </span>
       )}
-      {objective && (
-        <p className="mt-5 text-sm text-faint">
-          fait avancer&nbsp;:{" "}
-          <span className="text-muted">
-            {objective.icon && `${objective.icon} `}
-            {objective.title}
-          </span>
-          {priority.via && (
-            <span>
-              {" "}
-              · flux «&nbsp;{priority.via}&nbsp;»
-            </span>
+
+      <div className="flex items-start gap-4">
+        <NumberBadge n={number} color={color} size="lg" />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink sm:text-3xl">
+            {priority.title}
+          </h2>
+          {priority.why && (
+            <p className="mt-2.5 max-w-lg text-[1.02rem] leading-relaxed text-muted">
+              — {priority.why}
+            </p>
           )}
-        </p>
-      )}
+          {objective && (
+            <p className="mt-4 text-sm text-faint">
+              fait avancer&nbsp;:{" "}
+              <span className="font-medium" style={{ color }}>
+                {objective.icon && `${objective.icon} `}
+                {objective.title}
+              </span>
+              {priority.via && <span> · flux «&nbsp;{priority.via}&nbsp;»</span>}
+            </p>
+          )}
+        </div>
+        <CheckCircle done={false} color={color} onToggle={onToggle} size="lg" />
+      </div>
     </section>
   );
 }
@@ -242,33 +356,89 @@ function PriorityHero({
 function NextList({
   items,
   objById,
+  objectives,
+  onToggle,
 }: {
-  items: Priority[];
+  items: { p: Priority; n: number }[];
   objById: Map<string, Objective>;
+  objectives: Objective[];
+  onToggle: (id: string) => void;
 }) {
   return (
-    <div className="mt-12">
+    <div className="mt-10">
       <p className="text-xs uppercase tracking-[0.18em] text-faint">Ensuite</p>
-      <ol className="mt-3 flex flex-col gap-2.5">
-        {items.map((p, i) => {
+      <ol className="mt-3 flex flex-col gap-2">
+        {items.map(({ p, n }) => {
           const obj = p.objectiveId ? objById.get(p.objectiveId) : undefined;
+          const color = capColor(objectives, p.objectiveId);
           return (
-            <li key={p.id} className="flex items-baseline gap-3">
-              <span className="font-display text-sm text-faint">{i + 2}</span>
-              <p className="min-w-0 leading-snug">
+            <li
+              key={p.id}
+              className="flex items-center gap-3 rounded-xl border border-line/70 bg-surface/60 px-4 py-3"
+            >
+              <NumberBadge n={n} color={color} />
+              <p className="min-w-0 flex-1 leading-snug">
                 <span className="text-ink">{p.title}</span>
-                {obj && (
-                  <span className="text-faint">
-                    &nbsp;→ {obj.icon ? `${obj.icon} ` : ""}
-                    {obj.title}
+                {obj?.icon && (
+                  <span className="ml-1.5" title={obj.title}>
+                    {obj.icon}
                   </span>
                 )}
               </p>
+              <CheckCircle done={false} color={color} onToggle={() => onToggle(p.id)} />
             </li>
           );
         })}
       </ol>
     </div>
+  );
+}
+
+function DoneList({
+  items,
+  onToggle,
+}: {
+  items: { p: Priority; n: number }[];
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="mt-10">
+      <p className="text-xs uppercase tracking-[0.18em] text-faint">
+        Fait aujourd&apos;hui
+      </p>
+      <ol className="mt-3 flex flex-col gap-1.5">
+        {items.map(({ p }) => (
+          <li key={p.id} className="animate-fade flex items-center gap-3">
+            <button
+              onClick={() => onToggle(p.id)}
+              title="finalement pas faite"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cap text-xs text-canvas"
+            >
+              ✓
+            </button>
+            <span className="min-w-0 text-muted line-through decoration-faint/70">
+              {p.title}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+// Tout est coché : le moment de récompense — court, chaleureux, refermable.
+function AllDone() {
+  return (
+    <section className="animate-rise rounded-2xl border border-line bg-surface p-8 text-center shadow-sm">
+      <p className="text-3xl">★</p>
+      <p className="mt-3 font-display text-2xl font-medium text-ink">
+        Tout est fait.
+      </p>
+      <p className="mx-auto mt-2 max-w-sm text-muted">
+        Journée pleine — chaque case cochée a fait avancer un cap. Tu peux
+        fermer Cap.
+      </p>
+    </section>
   );
 }
 
