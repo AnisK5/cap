@@ -25,10 +25,16 @@ export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-export function todayISO(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+// Vrai « même jour » dans le fuseau de CELUI QUI REGARDE : la comparaison se
+// fait côté client sur des timestamps complets — jamais de minuit serveur
+// (le serveur déployé vit en UTC, pas dans le fuseau de la personne).
+export function sameLocalDay(aIso: string, b: Date = new Date()): boolean {
+  const a = new Date(aIso);
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
 export interface Reconciliation {
@@ -256,7 +262,9 @@ export function applyReconciliation(
     objectives,
     priorities,
     prioritiesDate:
-      !opts.live && r.priorities ? todayISO() : state.prioritiesDate,
+      !opts.live && r.priorities
+        ? new Date().toISOString()
+        : state.prioritiesDate,
     understanding:
       r.understanding?.trim() && r.understanding.trim().length > 0
         ? r.understanding.trim()
