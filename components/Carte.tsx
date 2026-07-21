@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Flow, Objective, Step } from "@/lib/types";
+import type { Objective, Step } from "@/lib/types";
 import { deadlineChip, momentumLabel } from "./CapTrack";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -127,6 +127,15 @@ function PathsView({
   onEditFlowTitle,
   onSeeWeeks,
 }: CarteProps & { onSeeWeeks: () => void }) {
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   return (
     <div className="mx-auto max-w-2xl">
       {objectives.map((o, i) => (
@@ -134,6 +143,8 @@ function PathsView({
           key={o.id}
           o={o}
           color={PALETTE[i % PALETTE.length]}
+          open={openIds.has(o.id)}
+          onToggle={() => toggle(o.id)}
           onOpen={onOpen}
           onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
           onEditTitle={
@@ -151,9 +162,14 @@ function PathsView({
   );
 }
 
+// Replié = 2 lignes : le cap, et où j'en suis sur le chemin. Tout le reste
+// (jalons complets, flux, cible, momentum) n'existe qu'une fois déplié —
+// c'est la seule façon de tenir le test des 3 secondes avec de vraies données.
 function CapPath({
   o,
   color,
+  open,
+  onToggle,
   onOpen,
   onDelete,
   onEditTitle,
@@ -162,6 +178,8 @@ function CapPath({
 }: {
   o: Objective;
   color: string;
+  open: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   onDelete?: () => void;
   onEditTitle?: (title: string) => void;
@@ -171,18 +189,20 @@ function CapPath({
   const chip = deadlineChip(o);
   const momentum = momentumLabel(o);
   const asleep = momentum?.startsWith("dort");
+  const steps = o.steps ?? [];
   const flows = o.flows ?? [];
   const active = flows.filter((f) => !f.waitingOn && f.state !== "pause");
   const waiting = flows.filter((f) => !!f.waitingOn);
-  const hasData = (o.steps?.length ?? 0) + flows.length > 0;
-  const hasTiming = [...(o.steps ?? []), ...flows].some(
-    (t) => t.fromWeek !== undefined,
-  );
+  const hasData = steps.length + flows.length > 0;
+  const hasTiming = [...steps, ...flows].some((t) => t.fromWeek !== undefined);
 
   return (
-    <section className="group animate-rise border-t border-line/70 py-7 first:border-t-0 first:pt-1">
-      {/* 1er regard : le cap et son enjeu */}
-      <div className="flex items-center gap-2.5">
+    <section className="group animate-rise border-t border-line/70 py-5 first:border-t-0 first:pt-1">
+      {/* Ligne 1 : le cap et son enjeu. Clic = déplier. */}
+      <div
+        className="flex cursor-pointer items-center gap-2.5"
+        onClick={onToggle}
+      >
         {o.icon && <span className="text-lg leading-none">{o.icon}</span>}
         <InlineEdit
           value={o.title}
@@ -200,30 +220,26 @@ function CapPath({
               {chip.label}
             </span>
           ) : o.horizon ? (
-            <span className="rounded-full bg-sink px-2 py-0.5 text-xs text-muted">
+            <span
+              className="max-w-[9rem] truncate rounded-full bg-sink px-2 py-0.5 text-xs text-muted"
+              title={o.horizon}
+            >
               ⏱ {o.horizon}
             </span>
+          ) : o.unlocks ? (
+            <span className="text-xs text-gold" title={o.unlocks}>
+              ★
+            </span>
           ) : null}
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              className="rounded px-1 text-base leading-none text-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-              title="Supprimer ce cap"
-            >
-              ×
-            </button>
-          )}
+          <span className="text-xs text-faint">{open ? "▾" : "▸"}</span>
         </span>
       </div>
 
-      {o.target && (
-        <p className="mt-1 truncate pl-0.5 text-sm text-faint" title={o.target}>
-          cible : {o.target}
-        </p>
-      )}
-
-      {!hasData ? (
-        <p className="mt-3 text-sm italic text-faint">
+      {/* Ligne 2 : le chemin en pastilles — seule l'étape courante est nommée. */}
+      {hasData ? (
+        <CompactTrail steps={steps} color={color} hasReward={!!o.unlocks} />
+      ) : (
+        <p className="mt-2 text-sm italic text-faint">
           à cartographier —{" "}
           <button
             onClick={onOpen}
@@ -232,133 +248,168 @@ function CapPath({
             parles-en avec Cap
           </button>
         </p>
-      ) : (
-        <>
-          {/* 2e regard : le chemin (où j'en suis → la récompense) */}
-          {!!o.steps?.length && (
-            <PathTrail steps={o.steps} color={color} unlocks={o.unlocks} />
+      )}
+
+      {/* Déplié : le détail, une info par ligne. */}
+      {open && hasData && (
+        <div className="animate-fade mt-4 flex flex-col gap-2.5 pl-1 text-sm">
+          {steps.length > 0 && (
+            <ol className="flex flex-col gap-1.5">
+              {steps.map((s) => {
+                const isCurrent =
+                  steps.find((x) => !x.done)?.id === s.id;
+                return (
+                  <li key={s.id} className="flex items-baseline gap-2">
+                    <span
+                      className={isCurrent ? "font-semibold" : "text-faint"}
+                      style={isCurrent ? { color } : undefined}
+                    >
+                      {s.done ? "✓" : isCurrent ? "◉" : "○"}
+                    </span>
+                    <span
+                      className={
+                        s.done
+                          ? "text-faint line-through"
+                          : isCurrent
+                            ? "text-ink"
+                            : "text-muted"
+                      }
+                    >
+                      {s.title}
+                    </span>
+                  </li>
+                );
+              })}
+              {o.unlocks && (
+                <li className="flex items-baseline gap-2 text-gold">
+                  <span>★</span>
+                  <span>{o.unlocks}</span>
+                </li>
+              )}
+            </ol>
           )}
 
-          {/* 3e regard : ce qui tourne en continu */}
-          {(active.length > 0 || waiting.length > 0) && (
-            <p className="mt-2.5 text-sm leading-relaxed text-muted">
-              {active.length > 0 && (
-                <>
-                  <span className="text-faint">en continu&nbsp;: </span>
-                  {active.map((f, i) => (
-                    <FlowName
-                      key={f.id}
-                      flow={f}
-                      last={i === active.length - 1}
-                      onEdit={
-                        onEditFlow ? (t: string) => onEditFlow(f.id, t) : undefined
-                      }
-                    />
-                  ))}
-                </>
-              )}
-              {waiting.length > 0 && (
-                <span className="text-faint">
-                  {active.length > 0 && " · "}
-                  en attente&nbsp;:{" "}
-                  {waiting.map((f) => `${f.title} (${f.waitingOn})`).join(", ")}
+          {active.length > 0 && (
+            <p className="leading-relaxed text-muted">
+              <span className="text-faint">en continu&nbsp;: </span>
+              {active.map((f, i) => (
+                <span key={f.id}>
+                  <InlineEdit
+                    value={f.title}
+                    onChange={
+                      onEditFlow ? (t: string) => onEditFlow(f.id, t) : undefined
+                    }
+                    className="text-muted"
+                    inputClassName="text-sm text-ink border-b border-cap/40 bg-transparent focus:outline-none"
+                  />
+                  {f.state === "ralenti" && (
+                    <span className="text-faint"> (ralenti)</span>
+                  )}
+                  {i < active.length - 1 && (
+                    <span className="text-faint"> · </span>
+                  )}
                 </span>
-              )}
+              ))}
+            </p>
+          )}
+
+          {waiting.length > 0 && (
+            <p className="text-faint">
+              en attente&nbsp;:{" "}
+              {waiting.map((f) => `${f.title} (${f.waitingOn})`).join(", ")}
+            </p>
+          )}
+
+          {o.target && (
+            <p className="text-faint" title={o.target}>
+              cible&nbsp;: <span className="text-muted">{o.target}</span>
             </p>
           )}
 
           {/* Momentum : jamais une dette — une invitation. */}
           {asleep && (
-            <p className="mt-2.5 text-sm text-gold">
+            <p className="text-gold">
               {momentum} — un petit bloc pour le réveiller&nbsp;?
             </p>
           )}
 
-          {hasTiming && (
-            <button
-              onClick={onSeeWeeks}
-              className="mt-3 text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
-            >
-              ▸ voir les semaines
-            </button>
-          )}
-        </>
+          <p className="mt-1 flex items-center gap-4">
+            {hasTiming && (
+              <button
+                onClick={onSeeWeeks}
+                className="text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
+              >
+                ▸ voir les semaines
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="text-xs text-faint transition-colors hover:text-red-400"
+              >
+                supprimer ce cap
+              </button>
+            )}
+          </p>
+        </div>
       )}
     </section>
   );
 }
 
-// Le chemin de jalons, en grand : ✓ franchi · ◉ ici · ○ à venir · ★ récompense.
-function PathTrail({
+// ●─●─◉ Étape courante ─○─★ : le chemin d'un coup d'œil, un seul libellé.
+function CompactTrail({
   steps,
   color,
-  unlocks,
+  hasReward,
 }: {
   steps: Step[];
   color: string;
-  unlocks?: string;
+  hasReward: boolean;
 }) {
   const currentIdx = steps.findIndex((s) => !s.done);
+  const parts: React.ReactNode[] = [];
+
+  steps.forEach((s, i) => {
+    if (i > 0) parts.push(<Dash key={`d${i}`} />);
+    if (i === currentIdx) {
+      parts.push(
+        <span
+          key={s.id}
+          className="flex min-w-0 items-center gap-1.5 font-medium"
+          style={{ color }}
+        >
+          <span>◉</span>
+          <span className="truncate">{s.title}</span>
+        </span>,
+      );
+    } else {
+      parts.push(
+        <span key={s.id} className={s.done ? "" : "text-faint"} style={s.done ? { color, opacity: 0.55 } : undefined} title={s.title}>
+          {s.done ? "●" : "○"}
+        </span>,
+      );
+    }
+  });
+  if (hasReward) {
+    if (steps.length > 0) parts.push(<Dash key="dr" />);
+    parts.push(
+      <span key="r" className="text-gold">
+        ★
+      </span>,
+    );
+  }
+  if (parts.length === 0) return null;
+
   return (
-    <div className="mt-3.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5 text-[0.95rem]">
-      {steps.map((s, i) => {
-        const isCurrent = i === currentIdx && currentIdx >= 0;
-        const isDone = !!s.done;
-        return (
-          <span key={s.id} className="flex items-baseline gap-2.5">
-            {i > 0 && <span className="select-none text-faint/40">──</span>}
-            <span
-              className={
-                isDone
-                  ? "text-faint line-through decoration-faint/60"
-                  : isCurrent
-                    ? "font-semibold"
-                    : "text-muted"
-              }
-              style={isCurrent ? { color } : undefined}
-            >
-              <span className="mr-1 text-[0.8em]">
-                {isDone ? "✓" : isCurrent ? "◉" : "○"}
-              </span>
-              {s.title}
-            </span>
-          </span>
-        );
-      })}
-      {unlocks && (
-        <span className="flex items-baseline gap-2.5">
-          <span className="select-none text-faint/40">──</span>
-          <span className="text-gold" title={unlocks}>
-            <span className="mr-1">★</span>
-            {unlocks.length > 40 ? unlocks.slice(0, 38) + "…" : unlocks}
-          </span>
-        </span>
-      )}
+    <div className="mt-2 flex items-center gap-1.5 pl-0.5 text-[0.95rem]">
+      {parts}
     </div>
   );
 }
 
-function FlowName({
-  flow,
-  last,
-  onEdit,
-}: {
-  flow: Flow;
-  last: boolean;
-  onEdit?: (t: string) => void;
-}) {
-  return (
-    <span>
-      <InlineEdit
-        value={flow.title}
-        onChange={onEdit}
-        className="text-muted"
-        inputClassName="text-sm text-ink border-b border-cap/40 bg-transparent focus:outline-none"
-      />
-      {flow.state === "ralenti" && <span className="text-faint"> (ralenti)</span>}
-      {!last && <span className="text-faint"> · </span>}
-    </span>
-  );
+function Dash() {
+  return <span className="select-none text-faint/40">─</span>;
 }
 
 // ═════════════════════ NIVEAU 2 : SEMAINES (frise) ═══════════════════════
@@ -563,12 +614,6 @@ function ObjectiveGroup({
           className="font-display text-base font-medium text-ink"
           inputClassName="font-display text-base font-medium text-ink border-b border-cap/40 w-64"
         />
-        {o.target && (
-          <span className="hidden max-w-xs truncate text-xs text-muted sm:inline" title={o.target}>
-            · {o.target.length > 48 ? o.target.slice(0, 46) + "…" : o.target}
-            {o.horizon && o.target.length <= 48 ? ` (${o.horizon})` : ""}
-          </span>
-        )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {asleep ? (
             <span className="rounded-full bg-gold-soft px-2 py-0.5 text-[0.68rem] text-gold">
@@ -601,9 +646,6 @@ function ObjectiveGroup({
           )}
         </span>
       </div>
-
-      {/* Jalons : fil de progression (steps) */}
-      {!!o.steps?.length && <StepTrail steps={o.steps} color={color} />}
 
       {/* Indicateur de durée globale du cap sur la frise */}
       {capFrom !== undefined && (
@@ -658,40 +700,6 @@ function ObjectiveGroup({
           {/* Flows en attente → dans "Contexte en mémoire" sur Aujourd'hui */}
         </>
       )}
-    </div>
-  );
-}
-
-function StepTrail({ steps, color }: { steps: Step[]; color: string }) {
-  const currentIdx = steps.findIndex((s) => !s.done);
-  return (
-    <div className="relative z-10 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 bg-surface pl-1 text-xs">
-      {steps.map((s, i) => {
-        const isCurrent = i === currentIdx && currentIdx >= 0;
-        const isDone = !!s.done;
-        return (
-          <span key={s.id} className="flex items-baseline gap-2">
-            {i > 0 && <span className="select-none text-faint/30">→</span>}
-            <span
-              className={
-                isDone
-                  ? "text-faint line-through"
-                  : isCurrent
-                    ? "font-semibold"
-                    : "text-muted"
-              }
-              style={isCurrent ? { color } : undefined}
-            >
-              {isCurrent && (
-                <span className="mr-1 text-[0.58rem] font-bold uppercase tracking-wide opacity-60">
-                  ici ·
-                </span>
-              )}
-              {s.title}
-            </span>
-          </span>
-        );
-      })}
     </div>
   );
 }
