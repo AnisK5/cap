@@ -1,15 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Objective, Step } from "@/lib/types";
+import type { Flow, FlowState, Objective, Step } from "@/lib/types";
+import { newId } from "@/lib/merge";
 import { deadlineChip, momentumLabel } from "./CapTrack";
 
 // ─────────────────────────────────────────────────────────────────────────
 // La carte, en deux niveaux (méthodo TDAH : une question par niveau) :
-//  · CHEMINS (défaut)  — « où je vais, ça avance ? » : par cap, un chemin de
-//    jalons calme + les flux en continu. 3-4 objets visuels, pas de grille.
-//  · SEMAINES          — « quand, quoi ? » : la frise calendaire partagée
-//    (UN axe commun pour tous les caps — décision itér. 22), inchangée.
+//  · CHEMINS (défaut) — « où je vais, ça avance ? » : par cap, le MOTEUR
+//    d'abord (les flux : c'est eux qui produisent la conversion), puis le
+//    prochain jalon en toutes lettres. Tout le détail — éditable à la main —
+//    n'existe qu'une fois déplié.
+//  · SEMAINES — « quand, quoi ? » : la frise calendaire partagée (UN axe
+//    commun pour tous les caps — décision itér. 22).
 // ─────────────────────────────────────────────────────────────────────────
 
 const LABEL_W = 210;
@@ -28,12 +31,13 @@ const PALETTE = [
   "#b0843a", // gold
 ];
 
+type UpdateObjective = (id: string, up: (o: Objective) => Objective) => void;
+
 interface CarteProps {
   objectives: Objective[];
   onOpen: () => void;
   onDeleteCap?: (id: string) => void;
-  onEditCapTitle?: (id: string, title: string) => void;
-  onEditFlowTitle?: (objId: string, flowId: string, title: string) => void;
+  onUpdateObjective?: UpdateObjective;
 }
 
 function sortObjectives(objectives: Objective[]): Objective[] {
@@ -123,8 +127,7 @@ function PathsView({
   objectives,
   onOpen,
   onDeleteCap,
-  onEditCapTitle,
-  onEditFlowTitle,
+  onUpdateObjective,
   onSeeWeeks,
 }: CarteProps & { onSeeWeeks: () => void }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
@@ -138,23 +141,15 @@ function PathsView({
 
   return (
     <div className="mx-auto max-w-2xl">
-      {objectives.map((o, i) => (
+      {objectives.map((o) => (
         <CapPath
           key={o.id}
           o={o}
-          color={PALETTE[i % PALETTE.length]}
           open={openIds.has(o.id)}
           onToggle={() => toggle(o.id)}
           onOpen={onOpen}
           onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
-          onEditTitle={
-            onEditCapTitle ? (t: string) => onEditCapTitle(o.id, t) : undefined
-          }
-          onEditFlow={
-            onEditFlowTitle
-              ? (fid: string, t: string) => onEditFlowTitle(o.id, fid, t)
-              : undefined
-          }
+          onUpdate={onUpdateObjective}
           onSeeWeeks={onSeeWeeks}
         />
       ))}
@@ -162,28 +157,25 @@ function PathsView({
   );
 }
 
-// Replié = 2 lignes : le cap, et où j'en suis sur le chemin. Tout le reste
-// (jalons complets, flux, cible, momentum) n'existe qu'une fois déplié —
-// c'est la seule façon de tenir le test des 3 secondes avec de vraies données.
+// Replié = 3 lignes en toutes lettres, zéro glyphe à décoder :
+//   le cap · son horizon
+//   en continu : le MOTEUR (les flux, ce qui produit la conversion)
+//   prochain jalon : la prochaine marque franchissable
 function CapPath({
   o,
-  color,
   open,
   onToggle,
   onOpen,
   onDelete,
-  onEditTitle,
-  onEditFlow,
+  onUpdate,
   onSeeWeeks,
 }: {
   o: Objective;
-  color: string;
   open: boolean;
   onToggle: () => void;
   onOpen: () => void;
   onDelete?: () => void;
-  onEditTitle?: (title: string) => void;
-  onEditFlow?: (flowId: string, title: string) => void;
+  onUpdate?: UpdateObjective;
   onSeeWeeks: () => void;
 }) {
   const chip = deadlineChip(o);
@@ -192,13 +184,18 @@ function CapPath({
   const steps = o.steps ?? [];
   const flows = o.flows ?? [];
   const active = flows.filter((f) => !f.waitingOn && f.state !== "pause");
-  const waiting = flows.filter((f) => !!f.waitingOn);
   const hasData = steps.length + flows.length > 0;
   const hasTiming = [...steps, ...flows].some((t) => t.fromWeek !== undefined);
+  const nextStep = steps.find((s) => !s.done);
+  const remaining = steps.filter((s) => !s.done).length;
+
+  const up = onUpdate
+    ? (fn: (prev: Objective) => Objective) => onUpdate(o.id, fn)
+    : undefined;
 
   return (
-    <section className="group animate-rise border-t border-line/70 py-5 first:border-t-0 first:pt-1">
-      {/* Ligne 1 : le cap et son enjeu. Clic = déplier. */}
+    <section className="animate-rise border-t border-line/70 py-5 first:border-t-0 first:pt-1">
+      {/* Le cap et son enjeu. Clic = déplier le détail (éditable). */}
       <div
         className="flex cursor-pointer items-center gap-2.5"
         onClick={onToggle}
@@ -206,7 +203,7 @@ function CapPath({
         {o.icon && <span className="text-lg leading-none">{o.icon}</span>}
         <InlineEdit
           value={o.title}
-          onChange={onEditTitle}
+          onChange={up ? (t) => up((p) => ({ ...p, title: t })) : undefined}
           className="min-w-0 truncate font-display text-xl font-medium text-ink"
           inputClassName="font-display text-xl font-medium text-ink border-b border-cap/40 w-64"
         />
@@ -226,19 +223,12 @@ function CapPath({
             >
               ⏱ {o.horizon}
             </span>
-          ) : o.unlocks ? (
-            <span className="text-xs text-gold" title={o.unlocks}>
-              ★
-            </span>
           ) : null}
           <span className="text-xs text-faint">{open ? "▾" : "▸"}</span>
         </span>
       </div>
 
-      {/* Ligne 2 : le chemin en pastilles — seule l'étape courante est nommée. */}
-      {hasData ? (
-        <CompactTrail steps={steps} color={color} hasReward={!!o.unlocks} />
-      ) : (
+      {!hasData ? (
         <p className="mt-2 text-sm italic text-faint">
           à cartographier —{" "}
           <button
@@ -248,92 +238,73 @@ function CapPath({
             parles-en avec Cap
           </button>
         </p>
+      ) : open ? null : (
+        <div className="mt-2 flex flex-col gap-1 pl-0.5 text-sm leading-relaxed">
+          {active.length > 0 && (
+            <p className="text-muted">
+              <span className="text-faint">en continu&nbsp;: </span>
+              {active.map((f) => f.title).join(" · ")}
+            </p>
+          )}
+          {nextStep ? (
+            <p className="text-ink">
+              <span className="text-faint">prochain jalon&nbsp;: </span>
+              {nextStep.title}
+              {remaining > 1 && (
+                <span className="text-faint">
+                  {" "}
+                  · puis {remaining - 1} autre{remaining > 2 ? "s" : ""}
+                </span>
+              )}
+            </p>
+          ) : steps.length > 0 ? (
+            <p className="text-muted">
+              <span className="text-faint">jalons&nbsp;: </span>tous franchis ✓
+            </p>
+          ) : null}
+          {asleep && !open && (
+            <p className="text-gold">
+              {momentum} — un petit bloc pour le réveiller&nbsp;?
+            </p>
+          )}
+        </div>
       )}
 
-      {/* Déplié : le détail, une info par ligne. */}
-      {open && hasData && (
-        <div className="animate-fade mt-4 flex flex-col gap-2.5 pl-1 text-sm">
-          {steps.length > 0 && (
-            <ol className="flex flex-col gap-1.5">
-              {steps.map((s) => {
-                const isCurrent =
-                  steps.find((x) => !x.done)?.id === s.id;
-                return (
-                  <li key={s.id} className="flex items-baseline gap-2">
-                    <span
-                      className={isCurrent ? "font-semibold" : "text-faint"}
-                      style={isCurrent ? { color } : undefined}
-                    >
-                      {s.done ? "✓" : isCurrent ? "◉" : "○"}
-                    </span>
-                    <span
-                      className={
-                        s.done
-                          ? "text-faint line-through"
-                          : isCurrent
-                            ? "text-ink"
-                            : "text-muted"
-                      }
-                    >
-                      {s.title}
-                    </span>
-                  </li>
-                );
-              })}
-              {o.unlocks && (
-                <li className="flex items-baseline gap-2 text-gold">
-                  <span>★</span>
-                  <span>{o.unlocks}</span>
-                </li>
-              )}
-            </ol>
-          )}
+      {/* Déplié : le détail, ÉDITABLE — cocher, réordonner, ajouter,
+          supprimer, changer l'état d'un flux, cible et horizon. */}
+      {open && (
+        <div className="animate-fade mt-4 flex flex-col gap-4 rounded-xl border border-line/70 bg-surface p-4 text-sm">
+          <StepsEditor o={o} up={up} />
+          <FlowsEditor o={o} up={up} />
 
-          {active.length > 0 && (
-            <p className="leading-relaxed text-muted">
-              <span className="text-faint">en continu&nbsp;: </span>
-              {active.map((f, i) => (
-                <span key={f.id}>
-                  <InlineEdit
-                    value={f.title}
-                    onChange={
-                      onEditFlow ? (t: string) => onEditFlow(f.id, t) : undefined
-                    }
-                    className="text-muted"
-                    inputClassName="text-sm text-ink border-b border-cap/40 bg-transparent focus:outline-none"
-                  />
-                  {f.state === "ralenti" && (
-                    <span className="text-faint"> (ralenti)</span>
-                  )}
-                  {i < active.length - 1 && (
-                    <span className="text-faint"> · </span>
-                  )}
-                </span>
-              ))}
-            </p>
-          )}
+          <div className="flex flex-col gap-1.5">
+            <EditableMetaLine
+              label="cible"
+              hint="ce qui dira « réussi », en chiffres"
+              value={o.target}
+              onChange={up ? (v) => up((p) => ({ ...p, target: v })) : undefined}
+            />
+            <EditableMetaLine
+              label="horizon"
+              hint="l'échéance visée, même souple"
+              value={o.horizon}
+              onChange={up ? (v) => up((p) => ({ ...p, horizon: v })) : undefined}
+            />
+            <EditableMetaLine
+              label="récompense"
+              hint="ce que ce cap débloque"
+              value={o.unlocks}
+              onChange={up ? (v) => up((p) => ({ ...p, unlocks: v })) : undefined}
+            />
+          </div>
 
-          {waiting.length > 0 && (
-            <p className="text-faint">
-              en attente&nbsp;:{" "}
-              {waiting.map((f) => `${f.title} (${f.waitingOn})`).join(", ")}
-            </p>
-          )}
-
-          {o.target && (
-            <p className="text-faint" title={o.target}>
-              cible&nbsp;: <span className="text-muted">{o.target}</span>
-            </p>
-          )}
-
-          {/* Momentum : jamais une dette — une invitation. */}
           {asleep && (
             <p className="text-gold">
               {momentum} — un petit bloc pour le réveiller&nbsp;?
             </p>
           )}
 
-          <p className="mt-1 flex items-center gap-4">
+          <p className="flex items-center gap-4 border-t border-line/60 pt-3">
             {hasTiming && (
               <button
                 onClick={onSeeWeeks}
@@ -345,7 +316,7 @@ function CapPath({
             {onDelete && (
               <button
                 onClick={onDelete}
-                className="text-xs text-faint transition-colors hover:text-red-400"
+                className="ml-auto text-xs text-faint transition-colors hover:text-red-400"
               >
                 supprimer ce cap
               </button>
@@ -357,59 +328,309 @@ function CapPath({
   );
 }
 
-// ●─●─◉ Étape courante ─○─★ : le chemin d'un coup d'œil, un seul libellé.
-function CompactTrail({
-  steps,
-  color,
-  hasReward,
+// ── Jalons : cocher, renommer (double-clic), réordonner, supprimer, ajouter.
+function StepsEditor({
+  o,
+  up,
 }: {
-  steps: Step[];
-  color: string;
-  hasReward: boolean;
+  o: Objective;
+  up?: (fn: (prev: Objective) => Objective) => void;
 }) {
-  const currentIdx = steps.findIndex((s) => !s.done);
-  const parts: React.ReactNode[] = [];
+  const steps = o.steps ?? [];
+  const currentId = steps.find((s) => !s.done)?.id;
 
-  steps.forEach((s, i) => {
-    if (i > 0) parts.push(<Dash key={`d${i}`} />);
-    if (i === currentIdx) {
-      parts.push(
-        <span
-          key={s.id}
-          className="flex min-w-0 items-center gap-1.5 font-medium"
-          style={{ color }}
-        >
-          <span>◉</span>
-          <span className="truncate">{s.title}</span>
-        </span>,
-      );
-    } else {
-      parts.push(
-        <span key={s.id} className={s.done ? "" : "text-faint"} style={s.done ? { color, opacity: 0.55 } : undefined} title={s.title}>
-          {s.done ? "●" : "○"}
-        </span>,
-      );
-    }
-  });
-  if (hasReward) {
-    if (steps.length > 0) parts.push(<Dash key="dr" />);
-    parts.push(
-      <span key="r" className="text-gold">
-        ★
-      </span>,
-    );
-  }
-  if (parts.length === 0) return null;
+  const patchSteps = (fn: (steps: Step[]) => Step[]) =>
+    up?.((p) => ({ ...p, steps: fn(p.steps ?? []) }));
+
+  const move = (i: number, dir: -1 | 1) =>
+    patchSteps((s) => {
+      const next = [...s];
+      const j = i + dir;
+      if (j < 0 || j >= next.length) return s;
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
 
   return (
-    <div className="mt-2 flex items-center gap-1.5 pl-0.5 text-[0.95rem]">
-      {parts}
+    <div>
+      <p className="mb-1.5 text-xs uppercase tracking-[0.15em] text-faint">
+        Jalons <span className="normal-case tracking-normal">(dans l&apos;ordre — coche, réordonne)</span>
+      </p>
+      {steps.length === 0 && (
+        <p className="text-faint">aucun jalon posé pour l&apos;instant</p>
+      )}
+      <ol className="flex flex-col gap-1">
+        {steps.map((s, i) => {
+          const isCurrent = s.id === currentId;
+          return (
+            <li key={s.id} className="group/step flex items-center gap-2">
+              <button
+                onClick={() =>
+                  patchSteps((st) =>
+                    st.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)),
+                  )
+                }
+                title={s.done ? "marquer non fait" : "marquer fait"}
+                className={`w-5 text-left ${
+                  s.done
+                    ? "text-cap"
+                    : isCurrent
+                      ? "font-semibold text-cap"
+                      : "text-faint hover:text-cap"
+                }`}
+              >
+                {s.done ? "✓" : isCurrent ? "◉" : "○"}
+              </button>
+              <InlineEdit
+                value={s.title}
+                onChange={(t) =>
+                  patchSteps((st) =>
+                    st.map((x) => (x.id === s.id ? { ...x, title: t } : x)),
+                  )
+                }
+                className={
+                  s.done
+                    ? "text-faint line-through"
+                    : isCurrent
+                      ? "text-ink"
+                      : "text-muted"
+                }
+                inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
+              />
+              {up && (
+                <span className="ml-auto flex shrink-0 items-center gap-1 text-faint sm:opacity-0 sm:transition-opacity sm:group-hover/step:opacity-100">
+                  <button onClick={() => move(i, -1)} title="monter" className="px-0.5 hover:text-ink">↑</button>
+                  <button onClick={() => move(i, 1)} title="descendre" className="px-0.5 hover:text-ink">↓</button>
+                  <button
+                    onClick={() => patchSteps((st) => st.filter((x) => x.id !== s.id))}
+                    title="supprimer ce jalon"
+                    className="px-0.5 hover:text-red-400"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </li>
+          );
+        })}
+        {o.unlocks && (
+          <li className="flex items-baseline gap-2 text-gold">
+            <span className="w-5">★</span>
+            <span>{o.unlocks}</span>
+          </li>
+        )}
+      </ol>
+      {up && (
+        <AddInline
+          label="ajouter un jalon"
+          onAdd={(t) =>
+            patchSteps((st) => [...st, { id: newId(), title: t, done: false }])
+          }
+        />
+      )}
     </div>
   );
 }
 
-function Dash() {
-  return <span className="select-none text-faint/40">─</span>;
+// ── Flux : renommer, changer l'état (clic), libérer une attente, supprimer.
+function FlowsEditor({
+  o,
+  up,
+}: {
+  o: Objective;
+  up?: (fn: (prev: Objective) => Objective) => void;
+}) {
+  const flows = o.flows ?? [];
+  const patchFlows = (fn: (flows: Flow[]) => Flow[]) =>
+    up?.((p) => ({ ...p, flows: fn(p.flows ?? []) }));
+
+  const cycle = (st?: FlowState): FlowState =>
+    st === "actif" || st === undefined ? "ralenti" : st === "ralenti" ? "pause" : "actif";
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs uppercase tracking-[0.15em] text-faint">
+        En continu <span className="normal-case tracking-normal">(le moteur — clique l&apos;état pour le changer)</span>
+      </p>
+      {flows.length === 0 && (
+        <p className="text-faint">aucun flux — ce cap n&apos;a pas encore de moteur</p>
+      )}
+      <ul className="flex flex-col gap-1">
+        {flows.map((f) => (
+          <li key={f.id} className="group/flow flex items-center gap-2">
+            <InlineEdit
+              value={f.title}
+              onChange={(t) =>
+                patchFlows((fl) =>
+                  fl.map((x) => (x.id === f.id ? { ...x, title: t } : x)),
+                )
+              }
+              className={f.state === "pause" ? "text-faint" : "text-muted"}
+              inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
+            />
+            {up ? (
+              <button
+                onClick={() =>
+                  patchFlows((fl) =>
+                    fl.map((x) =>
+                      x.id === f.id ? { ...x, state: cycle(x.state) } : x,
+                    ),
+                  )
+                }
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] ${
+                  f.state === "pause"
+                    ? "bg-sink text-faint"
+                    : f.state === "ralenti"
+                      ? "bg-gold-soft text-gold"
+                      : "bg-cap-soft text-cap-ink"
+                }`}
+                title="cliquer : actif → ralenti → pause"
+              >
+                {f.state ?? "actif"}
+              </button>
+            ) : (
+              <span className="text-xs text-faint">{f.state ?? "actif"}</span>
+            )}
+            {f.waitingOn && (
+              <span className="shrink-0 text-xs text-faint">
+                en attente&nbsp;: {f.waitingOn}
+                {up && (
+                  <button
+                    onClick={() =>
+                      patchFlows((fl) =>
+                        fl.map((x) =>
+                          x.id === f.id ? { ...x, waitingOn: undefined } : x,
+                        ),
+                      )
+                    }
+                    className="ml-1 underline decoration-dotted hover:text-cap-ink"
+                    title="ce n'est plus bloqué"
+                  >
+                    libérer
+                  </button>
+                )}
+              </span>
+            )}
+            {up && (
+              <button
+                onClick={() => patchFlows((fl) => fl.filter((x) => x.id !== f.id))}
+                title="supprimer ce flux"
+                className="ml-auto shrink-0 px-0.5 text-faint hover:text-red-400 sm:opacity-0 sm:transition-opacity sm:group-hover/flow:opacity-100"
+              >
+                ×
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {up && (
+        <AddInline
+          label="ajouter un flux"
+          onAdd={(t) =>
+            patchFlows((fl) => [...fl, { id: newId(), title: t, state: "actif" }])
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+// Une ligne « label : valeur » éditable au double-clic, avec son sens en hint.
+function EditableMetaLine({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value?: string;
+  onChange?: (v: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  if (!value && !onChange) return null;
+  if (!value) {
+    return adding ? (
+      <p className="text-faint">
+        <span>{label}&nbsp;: </span>
+        <AutoInput
+          onCommit={(v) => {
+            if (v.trim()) onChange?.(v.trim());
+            setAdding(false);
+          }}
+        />
+      </p>
+    ) : (
+      <p className="text-faint">
+        {label}&nbsp;:{" "}
+        <button
+          onClick={() => setAdding(true)}
+          className="underline decoration-dotted hover:text-cap-ink"
+          title={hint}
+        >
+          + définir ({hint})
+        </button>
+      </p>
+    );
+  }
+  return (
+    <p className="text-faint" title={hint}>
+      {label}&nbsp;:{" "}
+      <InlineEdit
+        value={value}
+        onChange={onChange}
+        className="text-muted"
+        inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
+      />
+    </p>
+  );
+}
+
+function AddInline({
+  label,
+  onAdd,
+}: {
+  label: string;
+  onAdd: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="mt-1.5 text-xs text-faint transition-colors hover:text-cap-ink"
+      >
+        + {label}
+      </button>
+    );
+  }
+  return (
+    <div className="mt-1.5">
+      <AutoInput
+        onCommit={(v) => {
+          if (v.trim()) onAdd(v.trim());
+          setEditing(false);
+        }}
+      />
+    </div>
+  );
+}
+
+function AutoInput({ onCommit }: { onCommit: (v: string) => void }) {
+  const [v, setV] = useState("");
+  return (
+    <input
+      autoFocus
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => onCommit(v)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onCommit(v);
+        if (e.key === "Escape") onCommit("");
+      }}
+      className="w-full max-w-xs border-b border-cap/40 bg-transparent text-sm text-ink focus:outline-none"
+    />
+  );
 }
 
 // ═════════════════════ NIVEAU 2 : SEMAINES (frise) ═══════════════════════
@@ -449,8 +670,7 @@ function TimelineView({
   objectives,
   onOpen,
   onDeleteCap,
-  onEditCapTitle,
-  onEditFlowTitle,
+  onUpdateObjective,
 }: CarteProps) {
   const groups = objectives.map((o, i) => ({
     o,
@@ -551,10 +771,20 @@ function TimelineView({
               N={N}
               onOpen={onOpen}
               onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
-              onEditTitle={onEditCapTitle ? (t) => onEditCapTitle(o.id, t) : undefined}
+              onEditTitle={
+                onUpdateObjective
+                  ? (t) => onUpdateObjective(o.id, (p) => ({ ...p, title: t }))
+                  : undefined
+              }
               onEditFlow={
-                onEditFlowTitle
-                  ? (flowId, t) => onEditFlowTitle(o.id, flowId, t)
+                onUpdateObjective
+                  ? (flowId, t) =>
+                      onUpdateObjective(o.id, (p) => ({
+                        ...p,
+                        flows: (p.flows ?? []).map((f) =>
+                          f.id === flowId ? { ...f, title: t } : f,
+                        ),
+                      }))
                   : undefined
               }
             />
@@ -604,7 +834,7 @@ function ObjectiveGroup({
   return (
     <div className="group mt-5 border-t border-line/70 pt-3 first:mt-2 first:border-t-0">
       {/* En-tête de l'objectif — posé AU-DESSUS des lignes de mois (z-10 +
-          fond), sinon target/horizon flottent sur la timeline. */}
+          fond), sinon les lignes le traversent. */}
       <div className="relative z-10 mb-1.5 flex items-center gap-2.5 bg-surface">
         <span className="text-base leading-none">{o.icon ?? "◆"}</span>
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
@@ -775,6 +1005,7 @@ function InlineEdit({
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
         onBlur={() => {
           if (draft.trim()) onChange(draft.trim());
           setEditing(false);
