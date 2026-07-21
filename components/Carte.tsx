@@ -1,12 +1,15 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Objective, Step } from "@/lib/types";
+import type { Flow, Objective, Step } from "@/lib/types";
 import { deadlineChip, momentumLabel } from "./CapTrack";
 
 // ─────────────────────────────────────────────────────────────────────────
-// UNE seule frise partagée : ta vie / ton trimestre. Chaque cap = un groupe
-// de lignes, posé sur le MÊME axe de semaines. Repères mois + S1-S4.
+// La carte, en deux niveaux (méthodo TDAH : une question par niveau) :
+//  · CHEMINS (défaut)  — « où je vais, ça avance ? » : par cap, un chemin de
+//    jalons calme + les flux en continu. 3-4 objets visuels, pas de grille.
+//  · SEMAINES          — « quand, quoi ? » : la frise calendaire partagée
+//    (UN axe commun pour tous les caps — décision itér. 22), inchangée.
 // ─────────────────────────────────────────────────────────────────────────
 
 const LABEL_W = 210;
@@ -25,8 +28,342 @@ const PALETTE = [
   "#b0843a", // gold
 ];
 
-// Seuls les FLUX deviennent des barres sur la frise ; les étapes (jalons)
-// s'affichent en fil de progression (StepTrail), pas en durées.
+interface CarteProps {
+  objectives: Objective[];
+  onOpen: () => void;
+  onDeleteCap?: (id: string) => void;
+  onEditCapTitle?: (id: string, title: string) => void;
+  onEditFlowTitle?: (objId: string, flowId: string, title: string) => void;
+}
+
+function sortObjectives(objectives: Objective[]): Objective[] {
+  return [...objectives].sort((a, b) => {
+    const hasData = (o: Objective) =>
+      (o.steps?.length ?? 0) + (o.flows?.length ?? 0) > 0;
+    const pa = hasData(a) ? (a.lastMovedAt ? 0 : 1) : 2;
+    const pb = hasData(b) ? (b.lastMovedAt ? 0 : 1) : 2;
+    if (pa !== pb) return pa - pb;
+    const at = a.lastMovedAt ?? a.createdAt;
+    const bt = b.lastMovedAt ?? b.createdAt;
+    return bt > at ? 1 : bt < at ? -1 : 0;
+  });
+}
+
+export default function Carte(props: CarteProps) {
+  const [mode, setMode] = useState<"chemins" | "semaines">("chemins");
+
+  if (props.objectives.length === 0) {
+    return (
+      <div className="animate-rise rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-14 text-center">
+        <p className="mx-auto max-w-md font-display text-xl italic leading-relaxed text-muted">
+          Aucun cap pour l&apos;instant. Dis-moi sur quoi tu bosses, et je dessine
+          où tu en es.
+        </p>
+        <button
+          onClick={props.onOpen}
+          className="mt-7 rounded-full bg-ink px-6 py-3 text-sm font-medium text-canvas transition-transform hover:scale-[1.02]"
+        >
+          En parler
+        </button>
+      </div>
+    );
+  }
+
+  const sorted = sortObjectives(props.objectives);
+
+  return (
+    <div>
+      <div className="mb-5 flex items-center justify-end">
+        <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
+          <ModeTab active={mode === "chemins"} onClick={() => setMode("chemins")}>
+            Chemins
+          </ModeTab>
+          <ModeTab active={mode === "semaines"} onClick={() => setMode("semaines")}>
+            Semaines
+          </ModeTab>
+        </div>
+      </div>
+      {mode === "chemins" ? (
+        <PathsView
+          {...props}
+          objectives={sorted}
+          onSeeWeeks={() => setMode("semaines")}
+        />
+      ) : (
+        <TimelineView {...props} objectives={sorted} />
+      )}
+    </div>
+  );
+}
+
+function ModeTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 transition-colors ${
+        active ? "bg-ink text-canvas" : "text-muted hover:text-ink"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ═════════════════════════ NIVEAU 1 : CHEMINS ════════════════════════════
+
+function PathsView({
+  objectives,
+  onOpen,
+  onDeleteCap,
+  onEditCapTitle,
+  onEditFlowTitle,
+  onSeeWeeks,
+}: CarteProps & { onSeeWeeks: () => void }) {
+  return (
+    <div className="mx-auto max-w-2xl">
+      {objectives.map((o, i) => (
+        <CapPath
+          key={o.id}
+          o={o}
+          color={PALETTE[i % PALETTE.length]}
+          onOpen={onOpen}
+          onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
+          onEditTitle={
+            onEditCapTitle ? (t: string) => onEditCapTitle(o.id, t) : undefined
+          }
+          onEditFlow={
+            onEditFlowTitle
+              ? (fid: string, t: string) => onEditFlowTitle(o.id, fid, t)
+              : undefined
+          }
+          onSeeWeeks={onSeeWeeks}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CapPath({
+  o,
+  color,
+  onOpen,
+  onDelete,
+  onEditTitle,
+  onEditFlow,
+  onSeeWeeks,
+}: {
+  o: Objective;
+  color: string;
+  onOpen: () => void;
+  onDelete?: () => void;
+  onEditTitle?: (title: string) => void;
+  onEditFlow?: (flowId: string, title: string) => void;
+  onSeeWeeks: () => void;
+}) {
+  const chip = deadlineChip(o);
+  const momentum = momentumLabel(o);
+  const asleep = momentum?.startsWith("dort");
+  const flows = o.flows ?? [];
+  const active = flows.filter((f) => !f.waitingOn && f.state !== "pause");
+  const waiting = flows.filter((f) => !!f.waitingOn);
+  const hasData = (o.steps?.length ?? 0) + flows.length > 0;
+  const hasTiming = [...(o.steps ?? []), ...flows].some(
+    (t) => t.fromWeek !== undefined,
+  );
+
+  return (
+    <section className="group animate-rise border-t border-line/70 py-7 first:border-t-0 first:pt-1">
+      {/* 1er regard : le cap et son enjeu */}
+      <div className="flex items-center gap-2.5">
+        {o.icon && <span className="text-lg leading-none">{o.icon}</span>}
+        <InlineEdit
+          value={o.title}
+          onChange={onEditTitle}
+          className="min-w-0 truncate font-display text-xl font-medium text-ink"
+          inputClassName="font-display text-xl font-medium text-ink border-b border-cap/40 w-64"
+        />
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {chip ? (
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
+              }`}
+            >
+              {chip.label}
+            </span>
+          ) : o.horizon ? (
+            <span className="rounded-full bg-sink px-2 py-0.5 text-xs text-muted">
+              ⏱ {o.horizon}
+            </span>
+          ) : null}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="rounded px-1 text-base leading-none text-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+              title="Supprimer ce cap"
+            >
+              ×
+            </button>
+          )}
+        </span>
+      </div>
+
+      {o.target && (
+        <p className="mt-1 truncate pl-0.5 text-sm text-faint" title={o.target}>
+          cible : {o.target}
+        </p>
+      )}
+
+      {!hasData ? (
+        <p className="mt-3 text-sm italic text-faint">
+          à cartographier —{" "}
+          <button
+            onClick={onOpen}
+            className="underline decoration-dotted hover:text-cap-ink"
+          >
+            parles-en avec Cap
+          </button>
+        </p>
+      ) : (
+        <>
+          {/* 2e regard : le chemin (où j'en suis → la récompense) */}
+          {!!o.steps?.length && (
+            <PathTrail steps={o.steps} color={color} unlocks={o.unlocks} />
+          )}
+
+          {/* 3e regard : ce qui tourne en continu */}
+          {(active.length > 0 || waiting.length > 0) && (
+            <p className="mt-2.5 text-sm leading-relaxed text-muted">
+              {active.length > 0 && (
+                <>
+                  <span className="text-faint">en continu&nbsp;: </span>
+                  {active.map((f, i) => (
+                    <FlowName
+                      key={f.id}
+                      flow={f}
+                      last={i === active.length - 1}
+                      onEdit={
+                        onEditFlow ? (t: string) => onEditFlow(f.id, t) : undefined
+                      }
+                    />
+                  ))}
+                </>
+              )}
+              {waiting.length > 0 && (
+                <span className="text-faint">
+                  {active.length > 0 && " · "}
+                  en attente&nbsp;:{" "}
+                  {waiting.map((f) => `${f.title} (${f.waitingOn})`).join(", ")}
+                </span>
+              )}
+            </p>
+          )}
+
+          {/* Momentum : jamais une dette — une invitation. */}
+          {asleep && (
+            <p className="mt-2.5 text-sm text-gold">
+              {momentum} — un petit bloc pour le réveiller&nbsp;?
+            </p>
+          )}
+
+          {hasTiming && (
+            <button
+              onClick={onSeeWeeks}
+              className="mt-3 text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
+            >
+              ▸ voir les semaines
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// Le chemin de jalons, en grand : ✓ franchi · ◉ ici · ○ à venir · ★ récompense.
+function PathTrail({
+  steps,
+  color,
+  unlocks,
+}: {
+  steps: Step[];
+  color: string;
+  unlocks?: string;
+}) {
+  const currentIdx = steps.findIndex((s) => !s.done);
+  return (
+    <div className="mt-3.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5 text-[0.95rem]">
+      {steps.map((s, i) => {
+        const isCurrent = i === currentIdx && currentIdx >= 0;
+        const isDone = !!s.done;
+        return (
+          <span key={s.id} className="flex items-baseline gap-2.5">
+            {i > 0 && <span className="select-none text-faint/40">──</span>}
+            <span
+              className={
+                isDone
+                  ? "text-faint line-through decoration-faint/60"
+                  : isCurrent
+                    ? "font-semibold"
+                    : "text-muted"
+              }
+              style={isCurrent ? { color } : undefined}
+            >
+              <span className="mr-1 text-[0.8em]">
+                {isDone ? "✓" : isCurrent ? "◉" : "○"}
+              </span>
+              {s.title}
+            </span>
+          </span>
+        );
+      })}
+      {unlocks && (
+        <span className="flex items-baseline gap-2.5">
+          <span className="select-none text-faint/40">──</span>
+          <span className="text-gold" title={unlocks}>
+            <span className="mr-1">★</span>
+            {unlocks.length > 40 ? unlocks.slice(0, 38) + "…" : unlocks}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function FlowName({
+  flow,
+  last,
+  onEdit,
+}: {
+  flow: Flow;
+  last: boolean;
+  onEdit?: (t: string) => void;
+}) {
+  return (
+    <span>
+      <InlineEdit
+        value={flow.title}
+        onChange={onEdit}
+        className="text-muted"
+        inputClassName="text-sm text-ink border-b border-cap/40 bg-transparent focus:outline-none"
+      />
+      {flow.state === "ralenti" && <span className="text-faint"> (ralenti)</span>}
+      {!last && <span className="text-faint"> · </span>}
+    </span>
+  );
+}
+
+// ═════════════════════ NIVEAU 2 : SEMAINES (frise) ═══════════════════════
+// La frise calendaire partagée — un seul axe commun pour tous les caps.
+
 interface Bar {
   id: string;
   title: string;
@@ -57,102 +394,14 @@ function mondayOfThisWeek(): Date {
   return d;
 }
 
-// ── Édition inline ────────────────────────────────────────────────────────
-function InlineEdit({
-  value,
-  onChange,
-  className,
-  inputClassName,
-}: {
-  value: string;
-  onChange?: (v: string) => void;
-  className?: string;
-  inputClassName?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const ref = useRef<HTMLInputElement>(null);
-
-  if (!onChange) return <span className={className}>{value}</span>;
-
-  if (editing) {
-    return (
-      <input
-        ref={ref}
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          if (draft.trim()) onChange(draft.trim());
-          setEditing(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            if (draft.trim()) onChange(draft.trim());
-            setEditing(false);
-          }
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-        }}
-        className={`bg-transparent focus:outline-none ${inputClassName ?? className ?? ""}`}
-      />
-    );
-  }
-
-  return (
-    <span
-      className={`cursor-text ${className ?? ""}`}
-      onDoubleClick={() => { setDraft(value); setEditing(true); }}
-      title="Double-clic pour modifier"
-    >
-      {value}
-    </span>
-  );
-}
-
-export default function Carte({
+function TimelineView({
   objectives,
   onOpen,
   onDeleteCap,
   onEditCapTitle,
   onEditFlowTitle,
-}: {
-  objectives: Objective[];
-  onOpen: () => void;
-  onDeleteCap?: (id: string) => void;
-  onEditCapTitle?: (id: string, title: string) => void;
-  onEditFlowTitle?: (objId: string, flowId: string, title: string) => void;
-}) {
-  if (objectives.length === 0) {
-    return (
-      <div className="animate-rise rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-14 text-center">
-        <p className="mx-auto max-w-md font-display text-xl italic leading-relaxed text-muted">
-          Aucun cap pour l&apos;instant. Dis-moi sur quoi tu bosses, et je dessine
-          où tu en es.
-        </p>
-        <button
-          onClick={onOpen}
-          className="mt-7 rounded-full bg-ink px-6 py-3 text-sm font-medium text-canvas transition-transform hover:scale-[1.02]"
-        >
-          En parler
-        </button>
-      </div>
-    );
-  }
-
-  const sortedObjectives = [...objectives].sort((a, b) => {
-    const hasData = (o: Objective) =>
-      (o.steps?.length ?? 0) + (o.flows?.length ?? 0) > 0;
-    const pa = hasData(a) ? (a.lastMovedAt ? 0 : 1) : 2;
-    const pb = hasData(b) ? (b.lastMovedAt ? 0 : 1) : 2;
-    if (pa !== pb) return pa - pb;
-    const at = a.lastMovedAt ?? a.createdAt;
-    const bt = b.lastMovedAt ?? b.createdAt;
-    return bt > at ? 1 : bt < at ? -1 : 0;
-  });
-  const groups = sortedObjectives.map((o, i) => ({
+}: CarteProps) {
+  const groups = objectives.map((o, i) => ({
     o,
     color: PALETTE[i % PALETTE.length],
     bars: collectBars(o),
@@ -490,5 +739,60 @@ function BarRow({
         />
       </div>
     </div>
+  );
+}
+
+// ── Édition inline ────────────────────────────────────────────────────────
+function InlineEdit({
+  value,
+  onChange,
+  className,
+  inputClassName,
+}: {
+  value: string;
+  onChange?: (v: string) => void;
+  className?: string;
+  inputClassName?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement>(null);
+
+  if (!onChange) return <span className={className}>{value}</span>;
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (draft.trim()) onChange(draft.trim());
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            if (draft.trim()) onChange(draft.trim());
+            setEditing(false);
+          }
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        className={`bg-transparent focus:outline-none ${inputClassName ?? className ?? ""}`}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={`cursor-text ${className ?? ""}`}
+      onDoubleClick={() => { setDraft(value); setEditing(true); }}
+      title="Double-clic pour modifier"
+    >
+      {value}
+    </span>
   );
 }

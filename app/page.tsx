@@ -10,7 +10,7 @@ import { sameLocalDay } from "@/lib/merge";
 import type { CapState, ContextNote, Objective, Priority } from "@/lib/types";
 import AuClair, { type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
-import { CapTrack, deadlineChip, isHard } from "@/components/CapTrack";
+import { CapTrack, deadlineChip } from "@/components/CapTrack";
 
 type View = "clair" | "today" | "carte";
 
@@ -122,8 +122,10 @@ export default function Home() {
     return <main className="min-h-full" />;
   }
 
+  const [first, ...rest] = state.priorities;
+
   return (
-    <main className="mx-auto min-h-full max-w-6xl px-6 pb-32 pt-16 sm:px-8 sm:pt-24">
+    <main className="mx-auto min-h-full max-w-6xl px-6 pb-40 pt-12 sm:px-8 sm:pb-32 sm:pt-24">
       <Header view={view} onView={setView} />
 
       {!hasServerState && <ImportBanner onImport={save} />}
@@ -132,7 +134,7 @@ export default function Home() {
         <div className="mx-auto max-w-2xl">
           {state.lastNote && state.priorities.length > 0 && (
             <p
-              className={`mb-10 font-display text-lg italic leading-snug text-muted ${
+              className={`mb-8 font-display text-lg italic leading-snug text-muted ${
                 justLanded ? "animate-rise" : "animate-fade"
               }`}
             >
@@ -153,18 +155,21 @@ export default function Home() {
                   pour les rafraîchir&nbsp;?
                 </p>
               )}
-              <ol className="stagger flex flex-col gap-4">
-                {state.priorities.map((p, i) => (
-                  <PriorityCard
-                    key={p.id}
-                    index={i + 1}
-                    priority={p}
-                    objective={
-                      p.objectiveId ? objById.get(p.objectiveId) : undefined
-                    }
-                  />
-                ))}
-              </ol>
+              <PriorityHero
+                priority={first}
+                objective={
+                  first.objectiveId ? objById.get(first.objectiveId) : undefined
+                }
+              />
+              {rest.length > 0 && <NextList items={rest} objById={objById} />}
+              <div className="mt-12 text-center sm:hidden">
+                <button
+                  onClick={openClair}
+                  className="rounded-full border border-line bg-surface px-5 py-2 text-sm text-muted"
+                >
+                  Faire le point
+                </button>
+              </div>
             </>
           )}
           {state.contextNotes && state.contextNotes.length > 0 && (
@@ -194,13 +199,111 @@ export default function Home() {
         />
       </div>
 
+      <BottomNav view={view} onView={setView} />
+
       {toast && (
-        <div className="animate-rise fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-2 text-sm text-ink shadow-md">
+        <div className="animate-rise fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-2 text-sm text-ink shadow-md sm:bottom-6">
           <span className="mr-1.5 text-cap-ink">✓</span>
           {toast}
         </div>
       )}
     </main>
+  );
+}
+
+// ── Aujourd'hui ───────────────────────────────────────────────────────────
+// LA priorité du jour en héros : au moment « je re-doute », l'œil tombe
+// dessus en une seconde. Pas de boîte — l'espace et l'échelle font le poids.
+
+function PriorityHero({
+  priority,
+  objective,
+}: {
+  priority: Priority;
+  objective?: Objective;
+}) {
+  const chip = objective ? deadlineChip(objective) : null;
+  return (
+    <section className={"animate-rise"}>
+      <h2 className="font-display text-3xl font-medium leading-tight tracking-tight text-ink sm:text-4xl">
+        {priority.title}
+      </h2>
+      {priority.why && (
+        <p className="mt-3 max-w-lg text-[1.02rem] leading-relaxed text-muted">
+          — {priority.why}
+        </p>
+      )}
+      {objective && (
+        <div className="mt-7">
+          <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate">
+              <span className="text-faint">→&nbsp;</span>
+              {objective.icon && (
+                <span className="mr-1">{objective.icon}</span>
+              )}
+              <span className="text-muted">{objective.title}</span>
+              {priority.via && (
+                <span className="text-faint">
+                  &nbsp;·&nbsp;{priority.via}
+                </span>
+              )}
+            </span>
+            {chip ? (
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                  chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
+                }`}
+              >
+                {chip.label}
+              </span>
+            ) : objective.unlocks ? (
+              <span
+                className="shrink-0 truncate rounded-full bg-gold-soft px-2 py-0.5 text-xs font-medium text-gold"
+                title={objective.unlocks}
+              >
+                ★ {objective.unlocks.length > 32
+                  ? objective.unlocks.slice(0, 30) + "…"
+                  : objective.unlocks}
+              </span>
+            ) : null}
+          </div>
+          <CapTrack objective={objective} size="lg" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NextList({
+  items,
+  objById,
+}: {
+  items: Priority[];
+  objById: Map<string, Objective>;
+}) {
+  return (
+    <div className="mt-12">
+      <p className="text-xs uppercase tracking-[0.18em] text-faint">Ensuite</p>
+      <ol className="mt-3 flex flex-col gap-2.5">
+        {items.map((p, i) => {
+          const obj = p.objectiveId ? objById.get(p.objectiveId) : undefined;
+          return (
+            <li key={p.id} className="flex items-baseline gap-3">
+              <span className="font-display text-sm text-faint">{i + 2}</span>
+              <p className="min-w-0 leading-snug">
+                <span className="text-ink">{p.title}</span>
+                {obj && (
+                  <span className="text-faint">
+                    &nbsp;→ {obj.icon ? `${obj.icon} ` : ""}
+                    {obj.title}
+                  </span>
+                )}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -251,17 +354,18 @@ function Header({
   const title =
     view === "today" ? "Aujourd'hui" : view === "carte" ? "La carte" : "Au clair";
   return (
-    <header className="mb-10">
+    <header className="mb-8 sm:mb-10">
       <p className="text-sm uppercase tracking-[0.18em] text-faint">{today}</p>
       <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
         {title}
       </h1>
 
-      <div className="mt-6 inline-flex gap-1 rounded-full border border-line bg-surface p-1 text-sm shadow-sm">
+      {/* Onglets : desktop seulement — sur mobile, la barre du bas prend le relais. */}
+      <div className="mt-6 hidden gap-1 rounded-full border border-line bg-surface p-1 text-sm shadow-sm sm:inline-flex">
         <Tab active={view === "clair"} onClick={() => onView("clair")}>
           <span className="flex items-center gap-1.5">
             Au clair
-            <kbd className="hidden rounded bg-sink px-1 py-0.5 text-[0.65rem] text-faint sm:inline">
+            <kbd className="rounded bg-sink px-1 py-0.5 text-[0.65rem] text-faint">
               ⌘K
             </kbd>
           </span>
@@ -298,61 +402,45 @@ function Tab({
   );
 }
 
-function PriorityCard({
-  index,
-  priority,
-  objective,
+// Navigation mobile : les 3 vues au pouce, comme une app installée.
+function BottomNav({
+  view,
+  onView,
 }: {
-  index: number;
-  priority: Priority;
-  objective?: Objective;
+  view: View;
+  onView: (v: View) => void;
 }) {
-  const chip = objective ? deadlineChip(objective) : null;
-  const hard = objective ? isHard(objective) : false;
-
+  const items: { v: View; label: string }[] = [
+    { v: "clair", label: "Au clair" },
+    { v: "today", label: "Aujourd'hui" },
+    { v: "carte", label: "La carte" },
+  ];
   return (
-    <li className="rounded-2xl border border-line bg-surface p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-baseline gap-3">
-        <span className="font-display text-sm text-faint">{index}</span>
-        <h2 className="font-display text-xl font-medium leading-snug text-ink">
-          {priority.title}
-        </h2>
-      </div>
-      {priority.why && (
-        <p className="mt-2 pl-7 text-[0.95rem] leading-relaxed text-muted">
-          {priority.why}
-        </p>
-      )}
-      {priority.via && (
-        <p className="mt-1 pl-7 text-sm text-faint">
-          une tranche de&nbsp;<span className="text-muted">{priority.via}</span>
-        </p>
-      )}
-      {objective && (
-        <div className="mt-4 pl-7">
-          <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-            <span className="min-w-0 truncate">
-              <span className="text-faint">vers&nbsp;</span>
-              <span className="text-muted">{objective.title}</span>
-            </span>
-            {chip ? (
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
+      <div className="mx-auto flex max-w-md">
+        {items.map(({ v, label }) => {
+          const active = view === v;
+          return (
+            <button
+              key={v}
+              onClick={() => onView(v)}
+              className="relative flex-1 py-3.5 text-[0.8rem] transition-colors"
+            >
+              {active && (
+                <span className="absolute inset-x-6 top-0 h-0.5 rounded-full bg-cap" />
+              )}
               <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                  chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
-                }`}
+                className={
+                  active ? "font-medium text-cap-ink" : "text-muted"
+                }
               >
-                {chip.label}
+                {label}
               </span>
-            ) : hard ? null : objective.unlocks ? (
-              <span className="shrink-0 rounded-full bg-gold-soft px-2 py-0.5 text-xs font-medium text-gold">
-                récompense
-              </span>
-            ) : null}
-          </div>
-          <CapTrack objective={objective} size="sm" />
-        </div>
-      )}
-    </li>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -365,7 +453,7 @@ function ContextSection({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-10">
+    <div className="mt-12">
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-faint transition-colors hover:text-muted"
