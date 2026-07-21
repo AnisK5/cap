@@ -211,6 +211,13 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
 
   const canLand = messages.some((m) => m.role === "user") && phase === "talking";
 
+  // Quand l'assistant propose lui-même de clore, le bouton d'atterrissage
+  // devient LA chose saillante de l'écran (méthodo : le moment du reward).
+  const lastAssistant =
+    [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
+  const suggestsLanding =
+    canLand && !busy && /assez clair/i.test(lastAssistant);
+
   return (
     <div
       className={`${active ? "flex" : "hidden"} h-[calc(100dvh-13rem)] flex-col pb-[env(safe-area-inset-bottom)]`}
@@ -277,7 +284,11 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
             <button
               onClick={land}
               disabled={!canLand}
-              className="rounded-full border border-cap/30 bg-cap-soft px-5 py-2 text-sm font-medium text-cap-ink transition-all hover:border-cap/60 disabled:cursor-not-allowed disabled:opacity-30"
+              className={`rounded-full border px-5 py-2 text-sm font-medium text-cap-ink transition-all disabled:cursor-not-allowed disabled:opacity-30 ${
+                suggestsLanding
+                  ? "animate-breathe border-cap/70 bg-cap-soft shadow-md"
+                  : "border-cap/30 bg-cap-soft hover:border-cap/60"
+              }`}
             >
               C&apos;est assez clair → mes priorités du jour
             </button>
