@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import type { Flow, FlowState, Objective, Step } from "@/lib/types";
 import { newId } from "@/lib/merge";
-import { deadlineChip, momentumLabel } from "./CapTrack";
+import { capColor, deadlineChip, momentumLabel } from "./CapTrack";
 
 // ─────────────────────────────────────────────────────────────────────────
 // La carte, en deux niveaux (méthodo TDAH : une question par niveau) :
@@ -23,14 +23,6 @@ const MONTHS = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
-const PALETTE = [
-  "var(--color-cap)", // indigo
-  "#2e6f63", // teal
-  "#c4703b", // terracotta
-  "#8a5cf6", // violet
-  "#b0843a", // gold
-];
-
 type UpdateObjective = (id: string, up: (o: Objective) => Objective) => void;
 
 interface CarteProps {
@@ -94,7 +86,11 @@ export default function Carte(props: CarteProps) {
           onSeeWeeks={() => setMode("semaines")}
         />
       ) : (
-        <TimelineView {...props} objectives={sorted} />
+        <TimelineView
+          {...props}
+          objectives={sorted}
+          colorOf={(id) => capColor(props.objectives, id)}
+        />
       )}
     </div>
   );
@@ -671,10 +667,11 @@ function TimelineView({
   onOpen,
   onDeleteCap,
   onUpdateObjective,
-}: CarteProps) {
-  const groups = objectives.map((o, i) => ({
+  colorOf,
+}: CarteProps & { colorOf: (id: string) => string }) {
+  const groups = objectives.map((o) => ({
     o,
-    color: PALETTE[i % PALETTE.length],
+    color: colorOf(o.id),
     bars: collectBars(o),
   }));
 

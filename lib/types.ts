@@ -72,6 +72,7 @@ export interface Priority {
   why: string; // pourquoi elle passe devant aujourd'hui
   objectiveId?: string; // le cap qu'elle fait avancer
   via?: string; // le flux/étape qu'elle alimente (ex. « sourcing »)
+  done?: boolean; // cochée par la personne → track record fiable
 }
 
 export type Role = "assistant" | "user";

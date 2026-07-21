@@ -104,9 +104,12 @@ function renderState(state: CapState): string {
         : `posées il y a ${-dayDiff(state.prioritiesDate)}j — peut-être périmées`
       : "";
     const lines = state.priorities.map(
-      (p) => `- ${p.title}${p.why ? ` (parce que ${p.why})` : ""}`,
+      (p) =>
+        `- ${p.done ? "[FAITE ✓] " : "[pas encore cochée] "}${p.title}${p.why ? ` (parce que ${p.why})` : ""}`,
     );
-    parts.push(`MES PRIORITÉS ACTUELLES (${when}) :\n${lines.join("\n")}`);
+    parts.push(
+      `MES PRIORITÉS ACTUELLES (${when} — « FAITE ✓ » = je l'ai cochée moi-même, c'est fiable) :\n${lines.join("\n")}`,
+    );
   } else {
     parts.push("MES PRIORITÉS ACTUELLES : (aucune posée — c'est peut-être ce qu'on va clarifier).");
   }
@@ -226,7 +229,12 @@ export function reconcileStateSummary(state: CapState): string {
         })
         .join("\n")
     : "(aucun)";
-  return `Compréhension actuelle : ${state.understanding || "(vide)"}\n\nCaps actuels :\n${caps}${ctx}`;
+  const prios = state.priorities.length
+    ? `\n\nPriorités du jour posées ([x] = cochée par la personne = RÉELLEMENT faite) :\n${state.priorities
+        .map((p) => `- [${p.done ? "x" : " "}] ${p.title}`)
+        .join("\n")}`
+    : "";
+  return `Compréhension actuelle : ${state.understanding || "(vide)"}\n\nCaps actuels :\n${caps}${ctx}${prios}`;
 }
 
 export const RECONCILE_INSTRUCTION = `Tu es le module de réconciliation de Cap. À partir de la conversation qui vient d'avoir lieu, tu mets à jour l'état de la personne en appelant l'outil "enregistrer". Tu ne parles pas à la personne.
@@ -247,6 +255,7 @@ Règles :
 - steps : liste ORDONNÉE COMPLÈTE (3-5), "done" pour les franchies. Pas de dates ni de durées.
 - PHASAGE EN SEMAINES (fromWeek/toWeek) : quand la conversation évoque le « quand » (« le CV cette semaine et la prochaine, les candidatures ensuite »), place les chantiers sur la frise en offsets de semaines depuis cette semaine (0 = cette semaine). Estimations LARGES, jamais des dates. Ne l'invente pas si le phasage n'a pas été abordé.
 - VOIES : si un cap a plusieurs ROUTES distinctes vers le même but (ex. « job » vs « freelance » pour « un revenu qui nourrit les apps »), étiquette chaque chantier avec sa "voie". Sinon, omets.
+- PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
 - "note" : une phrase, jamais culpabilisante, tournée vers la décision prise.
 - "contextNotes" : liste COMPLÈTE des mémos à garder (textes courts, pas des caps). Remplace la liste entière : garde ce qui reste pertinent, ajoute ce qui vient d'émerger, omets ce qui est résolu ou intégré ailleurs. Types de choses qui vont ici : tâche ponctuelle (« Hubvisory — un échange à explorer »), info en attente (« X répond en fin de semaine »), contrainte temporaire, idée à creuser plus tard.`;
