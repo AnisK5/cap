@@ -84,14 +84,14 @@ export interface StoredSession {
   landed: boolean;
 }
 
-// La session ouverte du jour (non atterrie), s'il y en a une : c'est elle
-// qu'on reprend après un refresh.
+// La session ouverte « du jour » = non atterrie et récente (< 12 h) : c'est
+// elle qu'on reprend après un refresh. Fenêtre glissante plutôt que minuit —
+// le serveur déployé vit en UTC, pas dans le fuseau de la personne.
 export async function getOpenSessionToday(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<StoredSession | null> {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDay = new Date(Date.now() - 12 * 3600_000);
   const { data, error } = await supabase
     .from("sessions")
     .select("id, started_at, messages, landed")

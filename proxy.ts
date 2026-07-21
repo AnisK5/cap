@@ -4,7 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 // Rafraîchit la session (cookies) et protège les pages : sans utilisateur,
 // tout sauf /login et /auth/* redirige vers /login. Les routes API renvoient
 // leurs propres 401 via requireUser.
-export async function middleware(request: NextRequest) {
+export default async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

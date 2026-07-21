@@ -6,7 +6,7 @@ import {
   readLegacyState,
   useCap,
 } from "@/lib/store";
-import { todayISO } from "@/lib/merge";
+import { sameLocalDay } from "@/lib/merge";
 import type { CapState, ContextNote, Objective, Priority } from "@/lib/types";
 import AuClair, { type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
@@ -116,7 +116,7 @@ export default function Home() {
   const stale =
     state.priorities.length > 0 &&
     state.prioritiesDate !== undefined &&
-    state.prioritiesDate !== todayISO();
+    !sameLocalDay(state.prioritiesDate);
 
   if (!ready) {
     return <main className="min-h-full" />;
