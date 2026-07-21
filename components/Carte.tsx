@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Flow, FlowState, Objective, Step } from "@/lib/types";
+import type { Flow, FlowState, Habit, Objective, Step } from "@/lib/types";
 import { newId } from "@/lib/merge";
 import { capColor, deadlineChip, momentumLabel } from "./CapTrack";
 
@@ -24,12 +24,15 @@ const MONTHS = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 type UpdateObjective = (id: string, up: (o: Objective) => Objective) => void;
+type UpdateHabits = (up: (prev: Habit[]) => Habit[]) => void;
 
 interface CarteProps {
   objectives: Objective[];
+  habits?: Habit[];
   onOpen: () => void;
   onDeleteCap?: (id: string) => void;
   onUpdateObjective?: UpdateObjective;
+  onUpdateHabits?: UpdateHabits;
 }
 
 function sortObjectives(objectives: Objective[]): Objective[] {
@@ -121,9 +124,11 @@ function ModeTab({
 
 function PathsView({
   objectives,
+  habits,
   onOpen,
   onDeleteCap,
   onUpdateObjective,
+  onUpdateHabits,
   onSeeWeeks,
 }: CarteProps & { onSeeWeeks: () => void }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
@@ -149,7 +154,152 @@ function PathsView({
           onSeeWeeks={onSeeWeeks}
         />
       ))}
+
+      {/* Le rythme de la vie, à côté de « où je vais » — les rituels ne sont
+          pas des destinations : pas de frise, juste un bloc de référence. */}
+      <HabitsBlock habits={habits ?? []} onUpdate={onUpdateHabits} />
     </div>
+  );
+}
+
+// ── Mes rituels : les habitudes persistantes, éditables à la main. Le coach
+// les apprend en conversation ; ici on les voit et on les ajuste.
+function HabitsBlock({
+  habits,
+  onUpdate,
+}: {
+  habits: Habit[];
+  onUpdate?: UpdateHabits;
+}) {
+  if (habits.length === 0 && !onUpdate) return null;
+  const patch = (id: string, fn: (h: Habit) => Habit) =>
+    onUpdate?.((prev) => prev.map((h) => (h.id === id ? fn(h) : h)));
+
+  return (
+    <div className="mt-8 border-t border-line/70 pt-5">
+      <p className="mb-2.5 text-xs uppercase tracking-[0.15em] text-faint">
+        Mes rituels
+      </p>
+      {habits.length === 0 ? (
+        <p className="text-sm italic text-faint">
+          Aucun rituel encore — le coach les apprend quand tu en parles, ou
+          ajoute-en un ici.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {habits.map((h) => (
+            <li key={h.id} className="group/hab flex items-baseline gap-2">
+              <InlineEdit
+                value={h.icon || "•"}
+                onChange={
+                  onUpdate ? (t) => patch(h.id, (x) => ({ ...x, icon: t })) : undefined
+                }
+                className="shrink-0 text-base leading-none"
+                inputClassName="text-base w-10 border-b border-cap/40 bg-transparent focus:outline-none"
+              />
+              <div className="min-w-0 flex-1">
+                <InlineEdit
+                  value={h.title}
+                  onChange={
+                    onUpdate
+                      ? (t) => patch(h.id, (x) => ({ ...x, title: t }))
+                      : undefined
+                  }
+                  className="font-medium text-ink"
+                  inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
+                />
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-faint">
+                  <HabitField
+                    value={h.cadence}
+                    placeholder="cadence"
+                    onChange={
+                      onUpdate
+                        ? (v) => patch(h.id, (x) => ({ ...x, cadence: v }))
+                        : undefined
+                    }
+                  />
+                  <HabitField
+                    value={h.preferredMoment}
+                    placeholder="moment"
+                    onChange={
+                      onUpdate
+                        ? (v) => patch(h.id, (x) => ({ ...x, preferredMoment: v }))
+                        : undefined
+                    }
+                  />
+                  <HabitField
+                    value={h.why}
+                    placeholder="ce que ça nourrit"
+                    onChange={
+                      onUpdate
+                        ? (v) => patch(h.id, (x) => ({ ...x, why: v }))
+                        : undefined
+                    }
+                  />
+                </p>
+              </div>
+              {onUpdate && (
+                <button
+                  onClick={() =>
+                    onUpdate((prev) => prev.filter((x) => x.id !== h.id))
+                  }
+                  title="supprimer ce rituel"
+                  className="shrink-0 px-0.5 text-faint hover:text-red-400 sm:opacity-0 sm:transition-opacity sm:group-hover/hab:opacity-100"
+                >
+                  ×
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {onUpdate && (
+        <AddInline
+          label="ajouter un rituel"
+          onAdd={(t) => onUpdate((prev) => [...prev, { id: newId(), title: t }])}
+        />
+      )}
+    </div>
+  );
+}
+
+// Un attribut d'habitude (cadence, moment, sens) : valeur éditable, ou une
+// invite discrète « + préciser » quand il est vide.
+function HabitField({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value?: string;
+  placeholder: string;
+  onChange?: (v: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  if (!value && !onChange) return null;
+  if (!value) {
+    return adding ? (
+      <AutoInput
+        onCommit={(v) => {
+          if (v.trim()) onChange?.(v.trim());
+          setAdding(false);
+        }}
+      />
+    ) : (
+      <button
+        onClick={() => setAdding(true)}
+        className="underline decoration-dotted hover:text-cap-ink"
+      >
+        + {placeholder}
+      </button>
+    );
+  }
+  return (
+    <InlineEdit
+      value={value}
+      onChange={onChange}
+      className="text-muted"
+      inputClassName="text-xs text-ink border-b border-cap/40 bg-transparent focus:outline-none"
+    />
   );
 }
 

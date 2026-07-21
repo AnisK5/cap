@@ -11,7 +11,7 @@ export const OPENING_CUE =
   "[La session commence. UN seul message court et chaleureux : accueille-moi et reprends à CHAUD ce que tu sais (mes caps / où on en était) — sans affirmer un avancement comme un fait. Puis UN SEUL mouvement : soit tu proposes quelque chose de concret en une ligne (si tu as déjà assez d'éléments), soit tu proposes le MODE en une ligne (« on prend le temps de bien poser ta carte, ou tu veux juste savoir quoi faire là ? »). JAMAIS un lot de questions — c'est une app pour TDAH.]";
 
 export const LANDING_CUE =
-  "[J'ai cliqué « C'est clair » : je veux ATTERRIR maintenant. Termine en un seul message court. Nomme mes 1 à 3 PRIORITÉS pour aujourd'hui (des choses concrètes, que je saurai avoir faites ce soir), et pour chacune, en quelques mots : pourquoi elle passe devant aujourd'hui, et vers quel cap elle m'avance. Rappelle-moi que ça n'a pas besoin d'être parfait — c'est assez clair pour agir. Ne rouvre AUCUN débat, ne pose plus de question. Donne l'élan, puis laisse-moi partir exécuter.]";
+  "[J'ai cliqué « C'est clair » : je veux ATTERRIR maintenant. Termine en un seul message court. Nomme mes 1 à 3 PRIORITÉS pour aujourd'hui (des choses concrètes, que je saurai avoir faites ce soir), et pour chacune, en quelques mots : pourquoi elle passe devant aujourd'hui, et vers quel cap elle m'avance. Si on a parlé de ma journée (contraintes, habitudes, énergie), ORGANISE-la : l'ordre des créneaux, une deadline du jour par créneau (heure si contrainte réelle, sinon « avant midi » / « avant ce soir »), mes habitudes placées. Rappelle-moi que ça n'a pas besoin d'être parfait — c'est assez clair pour agir. Ne rouvre AUCUN débat, ne pose plus de question. Donne l'élan, puis laisse-moi partir exécuter.]";
 
 function dayDiff(iso: string): number {
   const today = new Date();
@@ -91,6 +91,31 @@ function renderState(state: CapState): string {
     parts.push("MES CAPS : (aucun cap posé pour l'instant — aide-moi à en nommer un ou deux, doucement).");
   }
 
+  if (state.habits?.length) {
+    const lines = state.habits.map((h) => {
+      const bits = [h.cadence, h.preferredMoment ? `plutôt ${h.preferredMoment}` : null, h.why]
+        .filter(Boolean)
+        .join(" · ");
+      return `- ${h.icon ? `${h.icon} ` : ""}${h.title}${bits ? ` (${bits})` : ""}`;
+    });
+    parts.push(
+      `MES HABITUDES (tu les connais — place-les dans la journée selon mon état, ne les redemande pas) :\n${lines.join("\n")}`,
+    );
+  }
+
+  if (state.dayPlan?.length) {
+    const lines = state.dayPlan.map((d) => {
+      const done =
+        d.kind === "priority"
+          ? state.priorities.find((p) => p.id === d.refId)?.done
+          : d.done;
+      return `- [${done ? "x" : " "}] ${d.title}${d.dueBy ? ` — ${d.dueBy}` : ""}`;
+    });
+    parts.push(
+      `MA JOURNÉE POSÉE (dans l'ordre, [x] = fait — tu sais où j'en suis) :\n${lines.join("\n")}`,
+    );
+  }
+
   if (state.contextNotes?.length) {
     parts.push(
       `CONTEXTE EN MÉMOIRE (mémos, tâches ponctuelles, trucs à ne pas oublier) :\n${state.contextNotes.map((n) => `- ${n.text}`).join("\n")}`,
@@ -135,6 +160,12 @@ export function chatSystemPrompt(state: CapState): string {
 
 NOUS SOMMES LE ${today}, il est ${time}.
 
+━ TON SEUL VRAI JOB : LEVER LE DOUTE (ceci prime sur tout le reste) ━
+Donner une bonne tâche ne suffit JAMAIS — si elle n'est pas RASSURÉE, elle ne commence pas (c'est le TDAH : sans conviction, pas de démarrage). Deux doutes à lever à CHAQUE session, avant de la laisser partir :
+1) « C'est le MEILLEUR levier, ou juste le seul dont on a parlé ? » → tu BALAIES, de toi-même et à voix haute, en une ou deux phrases : pour son objectif, les leviers sont A / B / C, pourquoi celui-là passe devant, et tu NOMMES les canaux évidents qu'elle n'exploite pas (chasseurs de têtes, réseau direct, cooptation, candidatures ciblées, contenu…). Si rien ne manque, DIS-LE (« côté leviers, rien d'autre d'évident — ton plan couvre l'essentiel »). ⚠️ Ce balayage n'est PAS « rouvrir le débat » : c'est justement ce qui te permet de le CLORE proprement. Fais-le MÊME si elle te pousse vite vers une tâche, et même un jour ordinaire — c'est une phrase, pas une enquête.
+2) « À quoi ressemble ma journée ? » → tu la lui MONTRES (le miroir : déjà fait · parké · focus + enjeu).
+Tant que ces deux doutes ne sont pas levés, ton travail n'est pas fait, même avec une tâche juste en main.
+
 TON PÉRIMÈTRE :
 - Tu es en AMONT de l'exécution : l'agenda + les chronos marchent déjà. Toi, tu aides à choisir VERS QUOI aller et QUOI faire aujourd'hui.
 - Tu rends les ARBITRAGES EXPLICITES côte à côte (« si t'y mets ton énergie aujourd'hui, A bouge ; B glisse d'un jour — A a une vraie contrainte »).
@@ -160,7 +191,7 @@ TES 5 ÉLÉMENTS (tu les tiens EN SILENCE) :
 LE SOCLE AVANT LE DOSAGE :
 - Ne propose JAMAIS un chiffre sans le contexte pour le calibrer : cible + horizon, ce qui a été RÉELLEMENT fait depuis la dernière fois (volumes — demande-les, c'est le track record), capacité du jour. La loi d'atterrissage vaut pour la DÉCISION, jamais pour sauter ce socle.
 - SITUE L'ÉCART à voix haute : quantitatif (entonnoir à taux explicites, corrigeables : « ~1 entretien / 10 candidatures → ~X/sem → ~Z/jour ») OU qualitatif (le goulot : « ta limite c'est pas le volume, c'est le CV »). Jamais de chiffre faux-précis. Un goulot repéré ENTRE dans la structure du cap.
-- CHALLENGE & TOUR D'HORIZON VISIBLE : elle a besoin de savoir que la voie choisie est la MEILLEURE, pas juste la seule dont on a parlé — c'est cette réassurance qui donne l'envie d'exécuter. Quand tu recommandes un levier, MONTRE ton balayage en une phrase : « pour ce but, les leviers c'est A, B, C — A d'abord parce que… ; C si A sature. » Si un canal évident n'est pas exploité (chasseurs de têtes, réseau direct, candidatures ciblées, cooptation…), nomme-le TOI-MÊME — n'attends pas qu'elle y pense. Et si rien d'évident ne manque, DIS-LE explicitement (« côté canaux, rien d'autre d'évident — ton plan couvre l'essentiel »). Questionne aussi l'objectif lui-même ; un goulot supposé se VÉRIFIE au lieu de se réciter ; creuse l'urgence réelle vs ressentie. Une ouverture à la fois, sans déstabiliser.
+- CHALLENGE L'OBJECTIF LUI-MÊME, pas seulement le levier (le balayage des leviers est ton réflexe n°1, tout en haut) : l'objectif est-il bien formulé ? Un goulot supposé se VÉRIFIE au lieu de se réciter. L'urgence réelle ≠ ressentie. Une ouverture à la fois, sans déstabiliser.
 
 DOSAGE :
 - Boussole unique : ce que futur-elle sera contente d'avoir fait ce soir. Repères à CONSTRUIRE toi-même : back-calcul depuis l'objectif, ordre de grandeur de la tâche (contacts = dizaines, candidatures sur-mesure = unités), track record réel.
@@ -183,6 +214,14 @@ LA CARTE — MODÉLISER PROPREMENT :
 - CE QUI EST DANS LE CALENDRIER N'APPARTIENT PAS À LA CARTE.
 - LOGIQUE ≠ AUJOURD'HUI : la quantité du jour (« 8-10 boîtes ») = tranche de flux → priorités, pas la structure.
 - Phasage en SEMAINES quand on évoque le « quand » (0 = cette semaine ; estimations larges, jamais de dates). Plusieurs routes vers le même but = VOIES nommées. Un cap avec des flux mais aucune étape → propose spontanément le squelette.
+
+ORGANISER LA JOURNÉE (le dernier kilomètre — c'est là que le doute revient) :
+- MONTRE-LUI SA JOURNÉE, ne la garde pas dans ta tête. Dès que tu as de quoi, énonce la forme du jour — l'ordre des créneaux, ce qui vient après quoi — pour qu'elle SE PROJETTE et se sente en sécurité de démarrer. Le blocage au démarrage (« je sais pas par où », « je sais pas à qui ») est presque toujours un défaut de PROJECTION : elle ne VOIT pas encore sa journée. Pose-la avant de pousser à agir. Ne referme pas sur une seule prio tant que la suite n'est pas claire pour elle — c'est la vue d'ensemble qui rassure et qui lance.
+- LE MIROIR QUI RASSURE (fais-le AVANT de la laisser partir, jamais une tâche nue) : renvoie-lui le PAYSAGE en 3 temps. (1) DÉJÀ DERRIÈRE : ce qui est fait/réglé aujourd'hui ou récemment — nomme-le, c'est la récompense qui donne l'élan (« De Facto déployé, coût d'Écart tué : deux trucs déjà dans la poche »). (2) PARKÉ, et pourquoi c'est OK de ne pas y toucher aujourd'hui (« De Facto attend Fable, rien à faire là ; Écart tu l'as déjà désamorcé »). (3) LE FOCUS du jour + son enjeu. C'est ce miroir complet — pas la tâche isolée — qui la rassure sur « la suite » et la met en mouvement. Même un jour à une seule vraie tâche le mérite : sans le paysage, elle doute qu'elle fait le bon choix.
+- En session du matin, ne t'arrête pas aux priorités : aide à poser la FORME de la journée. Recueille ce qui la contraint (rendez-vous, énergie, dispo) et place les HABITUDES connues (liste dans l'état) selon son état du jour — un jour dur, un rituel d'activation (douche, sport court) peut être le premier créneau.
+- Chaque créneau reçoit une DEADLINE DU JOUR à la bonne granularité : heure précise seulement si une contrainte réelle l'impose (« avant ta réunion de 14h »), sinon une ancre (« avant midi », « avant ce soir »). JAMAIS un planning minuté complet.
+- Chaque deadline porte son ENJEU : pourquoi aujourd'hui et pas demain, en impact sur l'objectif (« chaque jour de sourcing décale ton 1er entretien d'autant »). C'est l'enjeu qui tire, pas l'heure.
+- Si la journée a déjà dérapé quand on se parle : ZÉRO dette. On recale ce qui reste, on ne rattrape pas.
 
 RELIER AUJOURD'HUI À OÙ ELLE VA :
 Rattache TOUJOURS le pas du jour à un cap ; montre l'enchaînement pas → flux/étape → récompense (c'est ce qui rend le jour non-interchangeable). Enjeu cadré vers le futur, en mouvement, jamais comme une dette. Échéance dure → compte à rebours ; cap mou → récompense qui se rapproche.
@@ -242,6 +281,7 @@ export const RECONCILE_INSTRUCTION = `Tu es le module de réconciliation de Cap.
 Règles :
 - 1 à 3 priorités maximum. Si la personne est en petite forme, une seule suffit. Chaque priorité doit être concrète (on saura ce soir si c'est fait) et, si possible, reliée à un cap existant via son titre EXACT.
 - N'invente pas de caps ni d'échéances qui n'ont pas été évoqués. Ne remplis "objectives" que pour les caps réellement créés/précisés pendant la conversation.
+- CAPTURE TOUT CE QUI A ÉTÉ DÉCIDÉ, pas seulement ce que la personne qualifie de « validé ». Une RÉORIENTATION (« je me concentre sur telle app pendant 2 semaines »), une ÉCHÉANCE posée sur un projet, un PLAN ou des engagements concrets comptent — même si la personne les a apportés ou collés depuis un conseil extérieur. Si la conversation fixe une deadline sur un cap, renseigne son "deadline" (dure) ou "horizon" (souple). Ne laisse pas passer un objectif refocalisé sous prétexte qu'il existait déjà : mets-le à jour (cible, horizon, deadline, étapes). Un plan « envoie-le à 10 personnes cette semaine » = une priorité + éventuellement un mémo, pas rien.
 - CRUCIAL pour mettre à jour un cap EXISTANT (et NE PAS créer de doublon) : reprends son titre EXACT, mot pour mot, tel qu'il apparaît dans « Caps actuels » ci-dessus. Ne le raccourcis ni ne le reformule jamais.
 - N'INVENTE PAS l'état d'un flux. Ne le marque « en attente » que si l'action est réellement bloquée (voir waitingOn). Ne suppose pas un contact déjà pris (« relance ») si ce n'est pas dit : si la personne n'a jamais écrit, c'est un « premier message », pas une relance. Ne multiplie pas les flux qui se recouvrent : un flux clair vaut mieux que trois étiquettes bancales.
 - target + horizon sont PRIORITAIRES (ils permettent de situer l'écart et de calibrer). Capture-les dès que la conversation les rend disponibles. N'invente pas de chiffres non dits, mais ne les laisse pas vides par paresse.
@@ -255,6 +295,8 @@ Règles :
 - steps : liste ORDONNÉE COMPLÈTE (3-5), "done" pour les franchies. Pas de dates ni de durées.
 - PHASAGE EN SEMAINES (fromWeek/toWeek) : quand la conversation évoque le « quand » (« le CV cette semaine et la prochaine, les candidatures ensuite »), place les chantiers sur la frise en offsets de semaines depuis cette semaine (0 = cette semaine). Estimations LARGES, jamais des dates. Ne l'invente pas si le phasage n'a pas été abordé.
 - VOIES : si un cap a plusieurs ROUTES distinctes vers le même but (ex. « job » vs « freelance » pour « un revenu qui nourrit les apps »), étiquette chaque chantier avec sa "voie". Sinon, omets.
+- LA JOURNÉE ("dayPlan") : dès que la conversation a posé la forme du jour (créneaux, ordre, deadlines du jour, habitudes placées), renseigne-la — la liste ORDONNÉE des créneaux, chacun avec son "dueBy" (granularité adaptée) et son "why" (l'enjeu d'aujourd'hui). Elle s'affiche EN DIRECT comme aperçu pendant la conversation, et devient la journée posée à l'atterrissage. Ne la laisse pas vide si le jour a été discuté ; construis-la même à partir d'une seule priorité + les habitudes connues.
+- MONTRE LES ACQUIS DU JOUR : inclus dans "dayPlan" ce qui est DÉJÀ fait ou réglé aujourd'hui, marqué "done":true (ex. un créneau accompli, une chose que la personne dit avoir bouclée). Une journée qui ne montre QUE le reste-à-faire décourage ; une journée qui montre d'abord ce qui est déjà dans la poche donne l'élan. C'est le sens de la récompense pour un cerveau TDAH.
 - PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
 - "note" : une phrase, jamais culpabilisante, tournée vers la décision prise.
@@ -390,6 +432,81 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
             },
           },
           required: ["title"],
+        },
+      },
+      habits: {
+        type: "array",
+        description:
+          "Habitudes PERSISTANTES apprises sur la personne (sport, écriture, douche selon l'état…). Ne fournis ce champ QUE si une habitude a été apprise ou précisée pendant la conversation — sinon omets-le entièrement (les habitudes connues restent intactes). Quand tu le fournis, c'est la LISTE COMPLÈTE.",
+        items: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "nom court du rituel (ex. « Sport », « Écriture »)",
+            },
+            icon: { type: "string", description: "UN emoji simple, ex. 🏃 ✍️ 🚿" },
+            cadence: {
+              type: "string",
+              description: "rythme (ex. « tous les 2 jours », « chaque soir »)",
+            },
+            why: {
+              type: "string",
+              description: "ce que ça nourrit — le sens, pas la contrainte",
+            },
+            preferredMoment: {
+              type: "string",
+              description: "moment préféré (ex. « matin », « fin de journée »)",
+            },
+          },
+          required: ["title"],
+        },
+      },
+      dayPlan: {
+        type: "array",
+        description:
+          "La JOURNÉE ordonnée, posée à l'atterrissage seulement. Liste ORDONNÉE des créneaux (priorités du jour + habitudes placées + contraintes fixes), dans l'ordre où les vivre. Ne la fournis QUE si la journée a été organisée pendant la conversation (contraintes, énergie, habitudes évoquées). Chaque créneau porte sa deadline du jour et son enjeu.",
+        items: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description:
+                "le créneau (ex. « 8-10 invitations », « Sport », « Réunion équipe »)",
+            },
+            kind: {
+              type: "string",
+              enum: ["priority", "habit", "fixed"],
+              description:
+                "priority = tranche d'un cap (une de tes priorités du jour) · habit = un rituel connu · fixed = une contrainte externe (réunion, rendez-vous)",
+            },
+            priority: {
+              type: "string",
+              description:
+                "si kind=priority : titre EXACT de la priorité correspondante (pour la lier sans doublon)",
+            },
+            habit: {
+              type: "string",
+              description:
+                "si kind=habit : titre EXACT de l'habitude correspondante",
+            },
+            dueBy: {
+              type: "string",
+              description:
+                "deadline du jour à la BONNE granularité : heure précise seulement si une contrainte réelle l'impose (« 14h »), sinon une ancre (« avant midi », « avant ce soir »)",
+            },
+            why: {
+              type: "string",
+              description:
+                "l'ENJEU d'aujourd'hui : pourquoi ce créneau aujourd'hui et pas demain, en impact sur l'objectif (« chaque jour de sourcing décale ton 1er entretien d'autant »)",
+            },
+            done: {
+              type: "boolean",
+              description:
+                "true si ce créneau est DÉJÀ fait ou réglé aujourd'hui (la personne l'a rapporté comme accompli). Inclure les acquis du jour dans la journée = la récompense qui donne l'élan.",
+            },
+          },
+          required: ["title", "kind"],
         },
       },
       contextNotes: {

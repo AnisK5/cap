@@ -7,10 +7,18 @@ import {
   useCap,
 } from "@/lib/store";
 import { sameLocalDay } from "@/lib/merge";
-import type { CapState, ContextNote, Objective, Priority } from "@/lib/types";
+import type {
+  CapState,
+  ContextNote,
+  DayItem,
+  Habit,
+  Objective,
+  Priority,
+} from "@/lib/types";
 import AuClair, { type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
+import InstallPrompt from "@/components/InstallPrompt";
 
 type View = "clair" | "today" | "carte";
 
@@ -53,6 +61,25 @@ export default function Home() {
     [state, save],
   );
 
+  // Cocher un créneau de la journée : une priorité se coche via SA priorité
+  // (track record fiable) ; une habitude ou une contrainte se cochent sur
+  // le créneau lui-même.
+  const onToggleDayItem = useCallback(
+    (item: DayItem) => {
+      if (item.kind === "priority" && item.refId) {
+        onTogglePriority(item.refId);
+        return;
+      }
+      save({
+        ...state,
+        dayPlan: (state.dayPlan ?? []).map((d) =>
+          d.id === item.id ? { ...d, done: !d.done } : d,
+        ),
+      });
+    },
+    [state, save, onTogglePriority],
+  );
+
   // Édition manuelle : toute modification d'un cap (titres, jalons cochés /
   // réordonnés / ajoutés, états de flux, cible, horizon) passe par ici.
   const onUpdateObjective = useCallback(
@@ -61,6 +88,14 @@ export default function Home() {
         ...state,
         objectives: state.objectives.map((o) => (o.id === id ? up(o) : o)),
       });
+    },
+    [state, save],
+  );
+
+  // Édition manuelle des rituels persistants (bloc « Mes rituels » de La carte).
+  const onUpdateHabits = useCallback(
+    (up: (prev: Habit[]) => Habit[]) => {
+      save({ ...state, habits: up(state.habits ?? []) });
     },
     [state, save],
   );
@@ -122,6 +157,21 @@ export default function Home() {
   const hero = pending[0];
   const next = pending.slice(1);
 
+  // La journée organisée : quand elle existe, elle DEVIENT « Aujourd'hui » —
+  // une liste ordonnée (le coach a placé habitudes et contraintes autour des
+  // priorités). Le « maintenant » = le premier créneau non fait, quel que soit
+  // son type (un jour dur, ça peut être un rituel d'activation, pas la prio n°1).
+  const dayPlan = state.dayPlan ?? [];
+  const hasDay = dayPlan.length > 0;
+  const dayDoneOf = (d: DayItem) =>
+    d.kind === "priority" && d.refId
+      ? !!state.priorities.find((p) => p.id === d.refId)?.done
+      : !!d.done;
+  const dayPending = dayPlan.filter((d) => !dayDoneOf(d));
+  const dayDone = dayPlan.filter((d) => dayDoneOf(d));
+  const dayHero = dayPending[0];
+  const dayRest = dayPending.slice(1);
+
   return (
     <main className="mx-auto min-h-full max-w-6xl px-6 pb-40 pt-12 sm:px-8 sm:pb-32 sm:pt-24">
       <Header view={view} onView={setView} />
@@ -130,51 +180,104 @@ export default function Home() {
 
       {view === "today" && (
         <div className="mx-auto max-w-2xl">
-          {state.priorities.length === 0 ? (
+          {state.priorities.length === 0 && !hasDay ? (
             <EmptyState
               first={state.objectives.length === 0}
               onOpen={openClair}
             />
           ) : (
             <>
-              {/* Chaque élément porte son sens : d'où viennent ces priorités,
-                  et sont-elles fraîches. */}
+              {/* Chaque élément porte son sens : d'où vient ce qui s'affiche,
+                  et est-ce frais. */}
               <p
                 className={`mb-5 text-xs uppercase tracking-[0.18em] ${
                   stale ? "text-gold" : "text-faint"
                 }`}
               >
                 {stale
-                  ? "Posées un autre jour — un point pour les rafraîchir ?"
-                  : "Posées aujourd'hui avec Cap"}
+                  ? "Posé un autre jour — un point pour rafraîchir ?"
+                  : hasDay
+                    ? "Ta journée, posée avec Cap"
+                    : "Posées aujourd'hui avec Cap"}
               </p>
-              {hero ? (
-                <PriorityHero
-                  priority={hero.p}
-                  number={hero.n}
-                  color={capColor(state.objectives, hero.p.objectiveId)}
-                  objective={
-                    hero.p.objectiveId
-                      ? objById.get(hero.p.objectiveId)
-                      : undefined
-                  }
-                  onToggle={() => onTogglePriority(hero.p.id)}
-                  justLanded={justLanded}
-                />
+
+              {/* Les acquis du jour, mis en avant : la récompense d'abord,
+                  avant le reste-à-faire. */}
+              {hasDay
+                ? dayDone.length > 0 && (
+                    <DoneStrip
+                      items={dayDone.map((d) => ({ id: d.id, title: d.title }))}
+                      onToggle={(id) => {
+                        const d = dayDone.find((x) => x.id === id);
+                        if (d) onToggleDayItem(d);
+                      }}
+                    />
+                  )
+                : doneItems.length > 0 && (
+                    <DoneStrip
+                      items={doneItems.map(({ p }) => ({
+                        id: p.id,
+                        title: p.title,
+                      }))}
+                      onToggle={onTogglePriority}
+                    />
+                  )}
+
+              {hasDay ? (
+                <>
+                  {dayHero ? (
+                    <DayHero
+                      item={dayHero}
+                      priorities={state.priorities}
+                      habits={state.habits}
+                      objById={objById}
+                      objectives={state.objectives}
+                      onToggle={() => onToggleDayItem(dayHero)}
+                      justLanded={justLanded}
+                    />
+                  ) : (
+                    <AllDone />
+                  )}
+                  {dayRest.length > 0 && (
+                    <DayTimeline
+                      items={dayRest}
+                      priorities={state.priorities}
+                      habits={state.habits}
+                      objById={objById}
+                      objectives={state.objectives}
+                      onToggle={onToggleDayItem}
+                    />
+                  )}
+                </>
               ) : (
-                <AllDone />
+                <>
+                  {hero ? (
+                    <PriorityHero
+                      priority={hero.p}
+                      number={hero.n}
+                      color={capColor(state.objectives, hero.p.objectiveId)}
+                      objective={
+                        hero.p.objectiveId
+                          ? objById.get(hero.p.objectiveId)
+                          : undefined
+                      }
+                      onToggle={() => onTogglePriority(hero.p.id)}
+                      justLanded={justLanded}
+                    />
+                  ) : (
+                    <AllDone />
+                  )}
+                  {next.length > 0 && (
+                    <NextList
+                      items={next}
+                      objById={objById}
+                      objectives={state.objectives}
+                      onToggle={onTogglePriority}
+                    />
+                  )}
+                </>
               )}
-              {next.length > 0 && (
-                <NextList
-                  items={next}
-                  objById={objById}
-                  objectives={state.objectives}
-                  onToggle={onTogglePriority}
-                />
-              )}
-              {doneItems.length > 0 && (
-                <DoneList items={doneItems} onToggle={onTogglePriority} />
-              )}
+
               <div className="mt-12 text-center sm:hidden">
                 <button
                   onClick={openClair}
@@ -207,9 +310,11 @@ export default function Home() {
       {view === "carte" && (
         <Carte
           objectives={state.objectives}
+          habits={state.habits}
           onOpen={openClair}
           onDeleteCap={onDeleteCap}
           onUpdateObjective={onUpdateObjective}
+          onUpdateHabits={onUpdateHabits}
         />
       )}
 
@@ -394,34 +499,37 @@ function NextList({
   );
 }
 
-function DoneList({
+// Les acquis du jour, CÉLÉBRÉS (pas un cimetière barré en bas de page) : une
+// bande positive tout en haut, la récompense d'abord. Toucher un item le
+// dé-coche (au cas où).
+function DoneStrip({
   items,
   onToggle,
 }: {
-  items: { p: Priority; n: number }[];
+  items: { id: string; title: string }[];
   onToggle: (id: string) => void;
 }) {
   return (
-    <div className="mt-10">
-      <p className="text-xs uppercase tracking-[0.18em] text-faint">
-        Fait aujourd&apos;hui
+    <div className="animate-rise mb-6 rounded-2xl border border-cap/25 bg-cap-soft/50 px-4 py-3">
+      <p className="text-xs uppercase tracking-[0.18em] text-cap-ink">
+        Déjà dans la poche · {items.length}
       </p>
-      <ol className="mt-3 flex flex-col gap-1.5">
-        {items.map(({ p }) => (
-          <li key={p.id} className="animate-fade flex items-center gap-3">
+      <ul className="mt-2.5 flex flex-wrap gap-x-5 gap-y-2">
+        {items.map((it) => (
+          <li key={it.id}>
             <button
-              onClick={() => onToggle(p.id)}
-              title="finalement pas faite"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cap text-xs text-canvas"
+              onClick={() => onToggle(it.id)}
+              title="finalement pas fait"
+              className="flex items-center gap-2 text-left text-[0.95rem] text-ink"
             >
-              ✓
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cap text-xs text-canvas">
+                ✓
+              </span>
+              {it.title}
             </button>
-            <span className="min-w-0 text-muted line-through decoration-faint/70">
-              {p.title}
-            </span>
           </li>
         ))}
-      </ol>
+      </ul>
     </div>
   );
 }
@@ -439,6 +547,189 @@ function AllDone() {
         fermer Cap.
       </p>
     </section>
+  );
+}
+
+// ── Ta journée ────────────────────────────────────────────────────────────
+// Quand le coach a organisé la journée, « Aujourd'hui » devient une liste
+// ORDONNÉE : priorités, habitudes et contraintes placées dans le bon ordre.
+// Ce qui fait avancer un cap porte SA couleur ; rituels et contraintes restent
+// en teinte neutre (la couleur = « ça compte pour un cap »).
+
+const NEUTRAL = "var(--color-muted)";
+
+function resolveDay(
+  item: DayItem,
+  priorities: Priority[],
+  habits: Habit[] | undefined,
+  objById: Map<string, Objective>,
+  objectives: Objective[],
+) {
+  const prio =
+    item.kind === "priority" && item.refId
+      ? priorities.find((p) => p.id === item.refId)
+      : undefined;
+  const habit =
+    item.kind === "habit" && item.refId
+      ? habits?.find((h) => h.id === item.refId)
+      : undefined;
+  const objective = prio?.objectiveId ? objById.get(prio.objectiveId) : undefined;
+  const color = prio ? capColor(objectives, prio.objectiveId) : NEUTRAL;
+  const icon = objective?.icon ?? habit?.icon;
+  return { prio, objective, icon, color, isCap: !!prio };
+}
+
+// La deadline du jour : une ancre douce (« avant midi »), pas un compte à rebours.
+function DueChip({ label, color }: { label: string; color?: string }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
+      style={{
+        borderColor: color ?? "var(--color-line)",
+        color: color ?? "var(--color-muted)",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function DayHero({
+  item,
+  priorities,
+  habits,
+  objById,
+  objectives,
+  onToggle,
+  justLanded,
+}: {
+  item: DayItem;
+  priorities: Priority[];
+  habits: Habit[] | undefined;
+  objById: Map<string, Objective>;
+  objectives: Objective[];
+  onToggle: () => void;
+  justLanded: boolean;
+}) {
+  const { objective, icon, color, isCap } = resolveDay(
+    item,
+    priorities,
+    habits,
+    objById,
+    objectives,
+  );
+  return (
+    <section
+      className={`relative overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-sm ${
+        justLanded ? "animate-rise" : "animate-fade"
+      }`}
+      style={{ borderLeft: `5px solid ${color}` }}
+    >
+      {icon && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -bottom-4 -right-2 select-none text-[6.5rem] opacity-[0.09]"
+        >
+          {icon}
+        </span>
+      )}
+
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-xs uppercase tracking-[0.15em] text-faint">
+              Maintenant
+            </span>
+            {item.dueBy && <DueChip label={item.dueBy} />}
+          </div>
+          <h2 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink sm:text-3xl">
+            {item.title}
+          </h2>
+          {item.why && (
+            <p className="mt-2.5 max-w-lg text-[1.02rem] leading-relaxed text-muted">
+              — {item.why}
+            </p>
+          )}
+          {isCap && objective ? (
+            <p className="mt-4 text-sm text-faint">
+              fait avancer&nbsp;:{" "}
+              <span className="font-medium" style={{ color }}>
+                {objective.icon && `${objective.icon} `}
+                {objective.title}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-4 text-sm text-faint">
+              {item.kind === "habit" ? "ton rituel du jour" : "un rendez-vous à tenir"}
+            </p>
+          )}
+        </div>
+        <CheckCircle done={false} color={color} onToggle={onToggle} size="lg" />
+      </div>
+    </section>
+  );
+}
+
+function DayTimeline({
+  items,
+  priorities,
+  habits,
+  objById,
+  objectives,
+  onToggle,
+}: {
+  items: DayItem[];
+  priorities: Priority[];
+  habits: Habit[] | undefined;
+  objById: Map<string, Objective>;
+  objectives: Objective[];
+  onToggle: (item: DayItem) => void;
+}) {
+  return (
+    <div className="mt-10">
+      <p className="text-xs uppercase tracking-[0.18em] text-faint">
+        La suite de ta journée
+      </p>
+      <ol className="mt-3 flex flex-col gap-2">
+        {items.map((d) => {
+          const { icon, color } = resolveDay(
+            d,
+            priorities,
+            habits,
+            objById,
+            objectives,
+          );
+          return (
+            <li
+              key={d.id}
+              className="flex items-start gap-3 rounded-xl border border-line/70 bg-surface/60 px-4 py-3"
+            >
+              <span
+                className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: color }}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 flex-1 leading-snug text-ink">
+                    {icon && <span className="mr-1">{icon}</span>}
+                    {d.title}
+                  </p>
+                  {d.dueBy && <DueChip label={d.dueBy} />}
+                </div>
+                {d.why && (
+                  <p className="mt-1 text-sm leading-snug text-faint">{d.why}</p>
+                )}
+              </div>
+              <CheckCircle
+                done={false}
+                color={color}
+                onToggle={() => onToggle(d)}
+              />
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -490,7 +781,10 @@ function Header({
     view === "today" ? "Aujourd'hui" : view === "carte" ? "La carte" : "Au clair";
   return (
     <header className="mb-8 sm:mb-10">
-      <p className="text-sm uppercase tracking-[0.18em] text-faint">{today}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm uppercase tracking-[0.18em] text-faint">{today}</p>
+        <InstallPrompt />
+      </div>
       <h1 className="mt-1 font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
         {title}
       </h1>

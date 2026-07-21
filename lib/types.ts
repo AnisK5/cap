@@ -75,6 +75,32 @@ export interface Priority {
   done?: boolean; // cochée par la personne → track record fiable
 }
 
+// Une habitude apprise (PERSISTANTE) : le coach la connaît une fois pour
+// toutes (« sport tous les 2 jours, plutôt le matin ») et la place dans la
+// journée selon l'état du jour — sans jamais la redemander.
+export interface Habit {
+  id: string;
+  title: string;
+  icon?: string;
+  cadence?: string; // « tous les 2 jours », « chaque soir »…
+  why?: string; // ce que ça nourrit (le sens, pas la contrainte)
+  preferredMoment?: string; // « matin », « fin de journée »…
+}
+
+// Un créneau de la journée organisée à l'atterrissage. La journée est une
+// LISTE ORDONNÉE (la forme du jour), jamais un planning minuté à maintenir.
+export type DayItemKind = "priority" | "habit" | "fixed";
+
+export interface DayItem {
+  id: string;
+  kind: DayItemKind; // priority = tranche d'un cap · habit = rituel · fixed = contrainte (réunion…)
+  refId?: string; // Priority.id ou Habit.id selon kind
+  title: string;
+  dueBy?: string; // deadline du jour, granularité choisie par le coach (« avant midi », « 14h »)
+  why?: string; // l'ENJEU d'aujourd'hui : l'impact sur l'objectif si c'est fait aujourd'hui
+  done?: boolean; // pour habit/fixed — une priority se coche via la Priority elle-même
+}
+
 export type Role = "assistant" | "user";
 
 export interface ChatMessage {
@@ -97,11 +123,13 @@ export interface ContextNote {
 export interface CapState {
   objectives: Objective[];
   priorities: Priority[];
-  prioritiesDate?: string; // jour (ISO) pour lequel les priorités valent
+  prioritiesDate?: string; // jour (ISO) pour lequel priorités ET dayPlan valent
   understanding: string;
   lastNote?: string;
   name?: string;
   contextNotes?: ContextNote[]; // mémos libres, pas des caps
+  habits?: Habit[]; // les rituels persistants, appris par la conversation
+  dayPlan?: DayItem[]; // la journée ordonnée posée à l'atterrissage
 }
 
 export const EMPTY_STATE: CapState = {

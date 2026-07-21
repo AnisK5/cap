@@ -7,10 +7,13 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, DayItem, Priority } from "@/lib/types";
 import type { StoredState } from "@/lib/store";
 
 export type LandedPayload = StoredState & { note?: string | null };
+// La journée EN COURS renvoyée par la réconciliation live — non committée,
+// juste montrée pour rassurer avant d'atterrir.
+export type DayPreview = { priorities: Priority[]; dayPlan: DayItem[] };
 
 interface Props {
   active: boolean; // l'onglet « Au clair » est-il affiché ? (on démarre à ce moment)
@@ -50,13 +53,16 @@ async function streamChat(
 async function reconcile(
   sessionId: string,
   live: boolean,
-): Promise<LandedPayload> {
+): Promise<LandedPayload & { preview?: DayPreview | null }> {
   const res = await fetch("/api/reconcile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId, live }),
   });
-  const j = (await res.json()) as LandedPayload & { error?: string };
+  const j = (await res.json()) as LandedPayload & {
+    preview?: DayPreview | null;
+    error?: string;
+  };
   if (!res.ok || j.error) throw new Error(j.error || "Erreur de réconciliation.");
   return j;
 }
@@ -68,6 +74,7 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
   const [phase, setPhase] = useState<Phase>("talking");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftDay, setDraftDay] = useState<DayPreview | null>(null);
   const started = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -95,6 +102,7 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
     (sid: string) => {
       setError(null);
       setPhase("talking");
+      setDraftDay(null);
       setMessages([{ role: "assistant", content: "" }]);
       setBusy(true);
       streamChat({ sessionId: sid, messages: [] }, appendDelta)
@@ -158,9 +166,13 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
     try {
       await streamChat({ sessionId, messages: convo }, appendDelta);
       // Maj EN DIRECT (fire-and-forget) : le serveur relit la session en DB,
-      // fusionne et écrit — l'état renvoyé fait foi.
+      // fusionne la structure (carte) et renvoie aussi la JOURNÉE en cours —
+      // qu'on montre pour rassurer, sans la committer avant l'atterrissage.
       reconcile(sessionId, true)
-        .then(onLive)
+        .then((res) => {
+          onLive(res);
+          if (res.preview) setDraftDay(res.preview);
+        })
         .catch(() => {});
     } catch (e) {
       setError((e as Error).message);
@@ -232,6 +244,10 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
         </button>
       </div>
 
+      {draftDay && (phase === "talking" || phase === "landing") && (
+        <DayPreviewPanel day={draftDay} />
+      )}
+
       <div ref={scrollRef} className="w-full flex-1 overflow-y-auto pb-4">
         <div className="flex flex-col gap-6 py-4">
           {messages.map((m, i) => (
@@ -293,6 +309,85 @@ export default function AuClair({ active, onClose, onLanded, onLive }: Props) {
               C&apos;est assez clair → mes priorités du jour
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Ta journée en train de se dessiner : épinglée en haut de la conversation,
+// elle grandit à chaque échange pour que la personne SE PROJETTE et ose partir.
+function DayPreviewPanel({ day }: { day: DayPreview }) {
+  const [open, setOpen] = useState(true);
+  const usePlan = day.dayPlan.length > 0;
+  const rows = usePlan
+    ? day.dayPlan.map((d) => ({
+        id: d.id,
+        title: d.title,
+        why: d.why,
+        dueBy: d.dueBy,
+        done: d.done,
+      }))
+    : day.priorities.map((p) => ({
+        id: p.id,
+        title: p.title,
+        why: p.why,
+        dueBy: undefined as string | undefined,
+        done: p.done,
+      }));
+  const done = rows.filter((r) => r.done);
+  const todo = rows.filter((r) => !r.done);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mb-2 rounded-xl border border-cap/25 bg-cap-soft/40 px-3.5 py-2.5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-cap-ink"
+      >
+        <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
+        Ta journée
+        <span className="font-normal normal-case tracking-normal text-cap-ink/60">
+          — en train de se dessiner
+        </span>
+      </button>
+      {open && (
+        <div className="mt-2 flex flex-col gap-2.5">
+          {done.length > 0 && (
+            <div>
+              <p className="text-[0.7rem] uppercase tracking-[0.12em] text-cap-ink/70">
+                Déjà dans la poche · {done.length}
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                {done.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex items-center gap-1.5 text-sm text-ink"
+                  >
+                    <span className="text-cap">✓</span>
+                    {r.title}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {todo.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {todo.map((r) => (
+                <li key={r.id} className="leading-snug">
+                  <p className="text-sm text-ink">
+                    {r.title}
+                    {r.dueBy && (
+                      <span className="ml-1.5 text-xs text-cap-ink/70">
+                        · {r.dueBy}
+                      </span>
+                    )}
+                  </p>
+                  {r.why && <p className="text-xs italic text-faint">→ {r.why}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

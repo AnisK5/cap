@@ -189,3 +189,63 @@ describe("applyReconciliation — live vs atterrissage", () => {
     expect(next.understanding).toBe("compréhension initiale");
   });
 });
+
+describe("applyReconciliation — habitudes & journée", () => {
+  const withHabit = (): CapState => ({
+    ...baseState([jobCap()]),
+    habits: [{ id: "h1", title: "Sport", cadence: "tous les 2 jours" }],
+  });
+
+  it("fusionne les habitudes par titre (id et champs préservés)", () => {
+    const next = applyReconciliation(withHabit(), {
+      habits: [
+        { title: "sport", preferredMoment: "matin" },
+        { title: "Écriture", cadence: "chaque soir" },
+      ],
+    });
+    expect(next.habits).toHaveLength(2);
+    expect(next.habits![0].id).toBe("h1");
+    expect(next.habits![0].cadence).toBe("tous les 2 jours");
+    expect(next.habits![0].preferredMoment).toBe("matin");
+  });
+
+  it("les habitudes s'apprennent aussi en live ; pas d'habits fourni = intactes", () => {
+    const live = applyReconciliation(withHabit(), { habits: [{ title: "Écriture" }] }, { live: true });
+    expect(live.habits!.map((h) => h.title)).toEqual(["Écriture"]);
+    const untouched = applyReconciliation(withHabit(), { understanding: "x" });
+    expect(untouched.habits).toHaveLength(1);
+  });
+
+  it("la journée relie priorités et habitudes par titre, jamais en live", () => {
+    const r: Reconciliation = {
+      priorities: [{ title: "8-10 invitations", why: "volume", objective: "Un job product" }],
+      dayPlan: [
+        { title: "Sport", kind: "habit", habit: "Sport", dueBy: "avant midi" },
+        { title: "8-10 invitations", kind: "priority", priority: "8-10 invitations", dueBy: "avant 16h", why: "chaque jour décale ton 1er entretien" },
+        { title: "Réunion X", kind: "fixed", dueBy: "14h" },
+      ],
+    };
+    const next = applyReconciliation(withHabit(), r);
+    expect(next.dayPlan).toHaveLength(3);
+    expect(next.dayPlan![0].refId).toBe("h1");
+    expect(next.dayPlan![1].refId).toBe(next.priorities[0].id);
+    expect(next.dayPlan![2].refId).toBeUndefined();
+    expect(next.dayPlan![1].why).toContain("entretien");
+
+    const live = applyReconciliation(withHabit(), r, { live: true });
+    expect(live.dayPlan).toBeUndefined();
+  });
+
+  it("de nouvelles priorités sans nouveau plan invalident l'ancien dayPlan", () => {
+    const state: CapState = {
+      ...withHabit(),
+      dayPlan: [{ id: "d1", kind: "fixed", title: "vieux créneau" }],
+    };
+    const kept = applyReconciliation(state, { understanding: "x" });
+    expect(kept.dayPlan).toHaveLength(1);
+    const cleared = applyReconciliation(state, {
+      priorities: [{ title: "nouvelle prio", why: "" }],
+    });
+    expect(cleared.dayPlan).toBeUndefined();
+  });
+});

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireUser } from "@/lib/auth";
 import { getSessionById, getState, putState, saveSessionMessages } from "@/lib/db";
-import { applyReconciliation, type Reconciliation } from "@/lib/merge";
+import { applyReconciliation, previewDay, type Reconciliation } from "@/lib/merge";
 import { RECONCILE_MODEL } from "@/lib/model";
 import {
   RECONCILE_INSTRUCTION,
@@ -92,7 +92,13 @@ export async function POST(req: Request) {
       await saveSessionMessages(supabase, user.id, sessionId, session.messages, true);
     }
 
-    return Response.json({ ...written, note: r.note ?? null });
+    // En live : la journée n'est PAS committée (réservée à l'atterrissage),
+    // mais on renvoie son brouillon pour l'afficher « en cours » dans la conv.
+    const preview = live
+      ? previewDay(written.state.objectives, written.state.habits, r)
+      : null;
+
+    return Response.json({ ...written, note: r.note ?? null, preview });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erreur de réconciliation.";
     return Response.json({ error: msg }, { status: 500 });

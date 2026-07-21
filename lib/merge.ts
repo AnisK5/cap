@@ -1,8 +1,11 @@
 import type {
   CapState,
   ContextNote,
+  DayItem,
+  DayItemKind,
   Flow,
   FlowState,
+  Habit,
   Objective,
   Priority,
   Step,
@@ -69,6 +72,25 @@ export interface Reconciliation {
       toWeek?: number;
       voie?: string;
     }[];
+  }[];
+  // Habitudes persistantes : fournies seulement quand apprises/précisées.
+  habits?: {
+    title: string;
+    icon?: string;
+    cadence?: string;
+    why?: string;
+    preferredMoment?: string;
+  }[];
+  // La journée ordonnée (atterrissage seulement). priority/habit = titre
+  // EXACT de l'élément référencé, pour lier sans doublon.
+  dayPlan?: {
+    title: string;
+    kind: DayItemKind;
+    priority?: string;
+    habit?: string;
+    dueBy?: string;
+    why?: string;
+    done?: boolean; // déjà fait/réglé aujourd'hui — à célébrer comme acquis
   }[];
   understanding?: string;
   note?: string;
@@ -238,6 +260,85 @@ function linkPriorities(
     });
 }
 
+// Habitudes : la liste proposée remplace, ids et champs préservés par titre.
+// (Le réconcile ne la fournit que quand quelque chose a été appris/changé.)
+function mergeHabits(
+  existing: Habit[] | undefined,
+  proposed: NonNullable<Reconciliation["habits"]>,
+): Habit[] {
+  return proposed
+    .filter((h) => h.title?.trim())
+    .map((h) => {
+      const key = h.title.trim().toLowerCase();
+      const prev = existing?.find((e) => e.title.trim().toLowerCase() === key);
+      return {
+        id: prev?.id ?? newId(),
+        title: h.title.trim(),
+        ...(h.icon?.trim() ?? prev?.icon
+          ? { icon: h.icon?.trim() ?? prev?.icon }
+          : {}),
+        ...(h.cadence?.trim() ?? prev?.cadence
+          ? { cadence: h.cadence?.trim() ?? prev?.cadence }
+          : {}),
+        ...(h.why?.trim() ?? prev?.why
+          ? { why: h.why?.trim() ?? prev?.why }
+          : {}),
+        ...(h.preferredMoment?.trim() ?? prev?.preferredMoment
+          ? { preferredMoment: h.preferredMoment?.trim() ?? prev?.preferredMoment }
+          : {}),
+      };
+    });
+}
+
+// La journée : relie chaque créneau à sa priorité/habitude par titre.
+function linkDayPlan(
+  priorities: Priority[],
+  habits: Habit[] | undefined,
+  proposed: NonNullable<Reconciliation["dayPlan"]>,
+): DayItem[] {
+  const find = <T extends { id: string; title: string }>(
+    list: T[] | undefined,
+    title?: string,
+  ) =>
+    title
+      ? list?.find(
+          (x) => x.title.trim().toLowerCase() === title.trim().toLowerCase(),
+        )
+      : undefined;
+  return proposed
+    .filter((d) => d.title?.trim())
+    .map((d) => {
+      const ref =
+        d.kind === "priority"
+          ? find(priorities, d.priority ?? d.title)
+          : d.kind === "habit"
+            ? find(habits, d.habit ?? d.title)
+            : undefined;
+      return {
+        id: newId(),
+        kind: d.kind,
+        ...(ref ? { refId: ref.id } : {}),
+        title: d.title.trim(),
+        ...(d.dueBy?.trim() ? { dueBy: d.dueBy.trim() } : {}),
+        ...(d.why?.trim() ? { why: d.why.trim() } : {}),
+        done: d.done ?? false,
+      };
+    });
+}
+
+// Aperçu de la journée EN COURS pendant la conversation : on relie priorités
+// et créneaux comme à l'atterrissage, mais SANS rien committer — c'est un
+// brouillon vivant montré dans « Au clair » pour rassurer avant d'atterrir.
+export function previewDay(
+  objectives: Objective[],
+  habits: Habit[] | undefined,
+  r: Reconciliation,
+): { priorities: Priority[]; dayPlan: DayItem[] } {
+  const priorities = r.priorities ? linkPriorities(objectives, r.priorities) : [];
+  const dayPlan = r.dayPlan ? linkDayPlan(priorities, habits, r.dayPlan) : [];
+  return { priorities, dayPlan };
+}
+
 export function applyReconciliation(
   state: CapState,
   r: Reconciliation,
@@ -257,6 +358,20 @@ export function applyReconciliation(
       ? mergeContextNotes(state.contextNotes, r.contextNotes)
       : state.contextNotes;
 
+  // Les habitudes sont structurelles : apprises au fil de l'eau (live inclus).
+  const habits =
+    r.habits !== undefined ? mergeHabits(state.habits, r.habits) : state.habits;
+
+  // La journée n'est posée qu'à l'atterrissage. De nouvelles priorités sans
+  // nouveau plan invalident l'ancien (il pointait sur la journée d'avant).
+  const dayPlan = opts.live
+    ? state.dayPlan
+    : r.dayPlan !== undefined
+      ? linkDayPlan(priorities, habits, r.dayPlan)
+      : r.priorities
+        ? undefined
+        : state.dayPlan;
+
   return {
     ...state,
     objectives,
@@ -271,5 +386,7 @@ export function applyReconciliation(
         : state.understanding,
     lastNote: opts.live ? state.lastNote : r.note?.trim() || state.lastNote,
     contextNotes,
+    habits,
+    dayPlan,
   };
 }
