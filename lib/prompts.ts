@@ -13,24 +13,35 @@ export const OPENING_CUE =
 export const LANDING_CUE =
   "[J'ai cliqué « C'est clair » : je veux ATTERRIR maintenant. Termine en un seul message court. Nomme mes 1 à 3 PRIORITÉS pour aujourd'hui (des choses concrètes, que je saurai avoir faites ce soir), et pour chacune, en quelques mots : pourquoi elle passe devant aujourd'hui, et vers quel cap elle m'avance. Si on a parlé de ma journée (contraintes, habitudes, énergie), ORGANISE-la : l'ordre des créneaux, une deadline du jour par créneau (heure si contrainte réelle, sinon « avant midi » / « avant ce soir »), mes habitudes placées. Rappelle-moi que ça n'a pas besoin d'être parfait — c'est assez clair pour agir. Ne rouvre AUCUN débat, ne pose plus de question. Donne l'élan, puis laisse-moi partir exécuter.]";
 
-function dayDiff(iso: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(iso);
-  d.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - today.getTime()) / 86_400_000);
+// Date civile (YYYY-MM-DD) dans le fuseau de la personne. Sans timeZone,
+// retombe sur le fuseau du runtime (UTC en prod) — l'ancien comportement.
+function zonedYmd(d: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
-function deadlineLabel(iso?: string | null): string {
+// Écart en jours calendaires DANS le fuseau de la personne : on compare les
+// dates civiles (pas des minuits UTC), donc plus d'off-by-one autour de minuit.
+function dayDiff(iso: string, timeZone?: string): number {
+  const today = Date.parse(`${zonedYmd(new Date(), timeZone)}T00:00:00Z`);
+  const d = Date.parse(`${zonedYmd(new Date(iso), timeZone)}T00:00:00Z`);
+  return Math.round((d - today) / 86_400_000);
+}
+
+function deadlineLabel(iso?: string | null, timeZone?: string): string {
   if (!iso) return " · pas d'échéance dure (projet mou : l'enjeu = ce que ça ouvre)";
-  const n = dayDiff(iso);
+  const n = dayDiff(iso, timeZone);
   if (n < 0) return ` · échéance passée de ${-n}j`;
   if (n === 0) return " · échéance AUJOURD'HUI";
   if (n === 1) return " · échéance demain";
   return ` · échéance dans ${n}j`;
 }
 
-function renderState(state: CapState): string {
+function renderState(state: CapState, timeZone?: string): string {
   const parts: string[] = [];
 
   if (state.understanding?.trim()) {
@@ -47,7 +58,7 @@ function renderState(state: CapState): string {
       if (o.target) meta.push(`cible : ${o.target}`);
       if (o.horizon) meta.push(`horizon : ${o.horizon}`);
       if (o.lastMovedAt) {
-        const n = -dayDiff(o.lastMovedAt);
+        const n = -dayDiff(o.lastMovedAt, timeZone);
         meta.push(n <= 1 ? "a bougé récemment" : `dort depuis ${n}j`);
       }
       if (o.unlocks) meta.push(`récompense : ${o.unlocks}`);
@@ -84,7 +95,7 @@ function renderState(state: CapState): string {
             })
             .join("\n")
         : "";
-      return `- ${o.title}${deadlineLabel(o.deadline)}${metaLine}${missingLine}${steps}${flows}`;
+      return `- ${o.title}${deadlineLabel(o.deadline, timeZone)}${metaLine}${missingLine}${steps}${flows}`;
     });
     parts.push(`MES CAPS (les directions où je vais, avec leur état) :\n${lines.join("\n")}`);
   } else {
@@ -124,9 +135,9 @@ function renderState(state: CapState): string {
 
   if (state.priorities.length) {
     const when = state.prioritiesDate
-      ? dayDiff(state.prioritiesDate) === 0
+      ? dayDiff(state.prioritiesDate, timeZone) === 0
         ? "posées aujourd'hui"
-        : `posées il y a ${-dayDiff(state.prioritiesDate)}j — peut-être périmées`
+        : `posées il y a ${-dayDiff(state.prioritiesDate, timeZone)}j — peut-être périmées`
       : "";
     const lines = state.priorities.map(
       (p) =>
@@ -142,16 +153,20 @@ function renderState(state: CapState): string {
   return parts.join("\n\n");
 }
 
-export function chatSystemPrompt(state: CapState): string {
+export function chatSystemPrompt(state: CapState, timeZone?: string): string {
   const who = state.name ? ` Je m'appelle ${state.name}.` : "";
   const now = new Date();
+  // timeZone = fuseau IANA du client (le serveur déployé vit en UTC). Sans lui,
+  // Intl retombe sur le fuseau du runtime — l'ancien comportement.
   const today = new Intl.DateTimeFormat("fr-FR", {
+    timeZone,
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   }).format(now);
   const time = new Intl.DateTimeFormat("fr-FR", {
+    timeZone,
     hour: "2-digit",
     minute: "2-digit",
   }).format(now);
@@ -233,7 +248,7 @@ L'ouverture : accueil + reprise à chaud + UN seul mouvement (une proposition ou
 TU AS LA RECHERCHE WEB : pour un fait réel qui change la stratégie (rythme d'embauche, salaires…). Max 3 usages. Cite brièvement, reviens à la décision.
 
 ÉTAT ACTUEL (ce que tu sais de moi en ce moment) :
-${renderState(state)}`;
+${renderState(state, timeZone)}`;
 }
 
 // --- Réconciliation ---

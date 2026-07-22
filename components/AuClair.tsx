@@ -31,7 +31,12 @@ async function streamChat(
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    // Le fuseau du client : le serveur déployé vit en UTC, sans ça le coach
+    // se trompe de jour/heure autour de minuit local.
+    body: JSON.stringify({
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...body,
+    }),
   });
   if (!res.ok || !res.body) {
     const j = await res.json().catch(() => ({}));

@@ -42,6 +42,25 @@ export async function putState(
   if (current) await snapshotDaily(supabase, userId, current.state);
 
   const updatedAt = new Date().toISOString();
+
+  // Compare-and-swap RÉEL quand on tient un verrou : le prédicat `updated_at`
+  // vit CÔTÉ BASE, pas en JS. Deux réconciles concurrents qui ont lu le même
+  // `updated_at` ne peuvent pas gagner tous les deux — le second matche 0 ligne
+  // et repart en null (→ le caller relit et refait sa fusion). Sans ce prédicat,
+  // le check-then-write plus haut laisse passer les deux (TOCTOU).
+  if (expectedUpdatedAt && current) {
+    const { data, error } = await supabase
+      .from("states")
+      .update({ data: state, updated_at: updatedAt })
+      .eq("user_id", userId)
+      .eq("updated_at", expectedUpdatedAt)
+      .select("updated_at");
+    if (error) throw new Error(`Écriture de l'état : ${error.message}`);
+    if (!data || data.length === 0) return null; // conflit : quelqu'un a écrit entre-temps
+    return { state, updatedAt };
+  }
+
+  // Pas de verrou (première écriture, ou édition manuelle qui gagne) : upsert.
   const { error } = await supabase.from("states").upsert({
     user_id: userId,
     data: state,

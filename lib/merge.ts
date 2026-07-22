@@ -274,17 +274,19 @@ function mergeHabits(
       return {
         id: prev?.id ?? newId(),
         title: h.title.trim(),
-        ...(h.icon?.trim() ?? prev?.icon
-          ? { icon: h.icon?.trim() ?? prev?.icon }
+        // `||` (pas `??`) : une chaîne vide envoyée par le LLM ne doit PAS
+        // écraser la valeur déjà connue — elle se replie sur `prev`.
+        ...(h.icon?.trim() || prev?.icon
+          ? { icon: h.icon?.trim() || prev?.icon }
           : {}),
-        ...(h.cadence?.trim() ?? prev?.cadence
-          ? { cadence: h.cadence?.trim() ?? prev?.cadence }
+        ...(h.cadence?.trim() || prev?.cadence
+          ? { cadence: h.cadence?.trim() || prev?.cadence }
           : {}),
-        ...(h.why?.trim() ?? prev?.why
-          ? { why: h.why?.trim() ?? prev?.why }
+        ...(h.why?.trim() || prev?.why
+          ? { why: h.why?.trim() || prev?.why }
           : {}),
-        ...(h.preferredMoment?.trim() ?? prev?.preferredMoment
-          ? { preferredMoment: h.preferredMoment?.trim() ?? prev?.preferredMoment }
+        ...(h.preferredMoment?.trim() || prev?.preferredMoment
+          ? { preferredMoment: h.preferredMoment?.trim() || prev?.preferredMoment }
           : {}),
       };
     });
@@ -349,7 +351,7 @@ export function applyReconciliation(
     : state.objectives;
 
   const priorities =
-    !opts.live && r.priorities
+    !opts.live && r.priorities?.length
       ? linkPriorities(objectives, r.priorities)
       : state.priorities;
 
@@ -368,7 +370,7 @@ export function applyReconciliation(
     ? state.dayPlan
     : r.dayPlan !== undefined
       ? linkDayPlan(priorities, habits, r.dayPlan)
-      : r.priorities
+      : r.priorities?.length
         ? undefined
         : state.dayPlan;
 
@@ -377,7 +379,7 @@ export function applyReconciliation(
     objectives,
     priorities,
     prioritiesDate:
-      !opts.live && r.priorities
+      !opts.live && r.priorities?.length
         ? new Date().toISOString()
         : state.prioritiesDate,
     understanding:
