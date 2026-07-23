@@ -331,29 +331,40 @@ export default function Home() {
               </p>
             </div>
           )}
-          {state.contextNotes && state.contextNotes.length > 0 && (
-            <ContextSection notes={state.contextNotes} onDelete={onDeleteNote} />
-          )}
-          {state.history && state.history.length > 0 && (
-            <HistorySection history={state.history} />
-          )}
-          {state.understanding?.trim() && (
-            <UnderstandingSection text={state.understanding.trim()} />
-          )}
         </div>
       )}
 
       {view === "carte" && (
-        <Carte
-          objectives={state.objectives}
-          habits={state.habits}
-          onOpen={openClair}
-          onDeleteCap={onDeleteCap}
-          onUpdateObjective={onUpdateObjective}
-          onUpdateHabits={onUpdateHabits}
-          onClean={cleanMap}
-          cleaning={cleaning}
-        />
+        <>
+          <Carte
+            objectives={state.objectives}
+            habits={state.habits}
+            onOpen={openClair}
+            onDeleteCap={onDeleteCap}
+            onUpdateObjective={onUpdateObjective}
+            onUpdateHabits={onUpdateHabits}
+            onClean={cleanMap}
+            cleaning={cleaning}
+          />
+          {(state.contextNotes?.length ||
+            state.history?.length ||
+            state.understanding?.trim()) && (
+            <div className="mx-auto mt-4 max-w-2xl border-t border-line/70 pt-2">
+              {state.contextNotes && state.contextNotes.length > 0 && (
+                <ContextSection
+                  notes={state.contextNotes}
+                  onDelete={onDeleteNote}
+                />
+              )}
+              {state.understanding?.trim() && (
+                <UnderstandingSection text={state.understanding.trim()} />
+              )}
+              {state.history && state.history.length > 0 && (
+                <HistorySection history={state.history} />
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Monté en permanence pour ne PAS perdre la conversation en changeant
