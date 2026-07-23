@@ -41,11 +41,11 @@ export default function Home() {
       if (res.ok) {
         if (j.state) replace(j);
         const n = (j.removed ?? 0) as number;
-        setToast(
-          n > 0
-            ? `${n} doublon${n > 1 ? "s" : ""} fusionné${n > 1 ? "s" : ""}`
-            : "Aucun doublon — ta carte est déjà propre",
-        );
+        const s = (j.shortened ?? 0) as number;
+        const parts: string[] = [];
+        if (n > 0) parts.push(`${n} doublon${n > 1 ? "s" : ""} fusionné${n > 1 ? "s" : ""}`);
+        if (s > 0) parts.push(`${s} titre${s > 1 ? "s" : ""} raccourci${s > 1 ? "s" : ""}`);
+        setToast(parts.length ? parts.join(" · ") : "Rien à ranger — c'est déjà propre");
         setTimeout(() => setToast(null), 4000);
       }
     } catch {

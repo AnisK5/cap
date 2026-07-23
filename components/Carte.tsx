@@ -79,10 +79,10 @@ export default function Carte(props: CarteProps) {
           <button
             onClick={props.onClean}
             disabled={props.cleaning}
-            title="L'IA fusionne les doublons de la carte, sans rien perdre"
+            title="L'IA range la carte : fusionne les doublons et raccourcit les titres à rallonge, sans rien perdre"
             className="rounded-full border border-line bg-surface px-3 py-1 text-xs text-muted shadow-sm transition-colors hover:text-ink disabled:opacity-40"
           >
-            {props.cleaning ? "Nettoyage…" : "✨ Nettoyer les doublons"}
+            {props.cleaning ? "Nettoyage…" : "✨ Nettoyer"}
           </button>
         ) : (
           <span />
