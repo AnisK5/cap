@@ -103,14 +103,25 @@ function renderState(state: CapState, timeZone?: string): string {
   }
 
   if (state.habits?.length) {
+    // Quelles habitudes sont déjà dans la journée du jour ? (pour flaguer les oubliées)
+    const dayHasPlan = (state.dayPlan?.length ?? 0) > 0;
+    const placed = new Set(
+      (state.dayPlan ?? [])
+        .filter((d) => d.kind === "habit" && d.refId)
+        .map((d) => d.refId),
+    );
     const lines = state.habits.map((h) => {
       const bits = [h.cadence, h.preferredMoment ? `plutôt ${h.preferredMoment}` : null, h.why]
         .filter(Boolean)
         .join(" · ");
-      return `- ${h.icon ? `${h.icon} ` : ""}${h.title}${bits ? ` (${bits})` : ""}`;
+      const gap =
+        dayHasPlan && !placed.has(h.id)
+          ? " — ⚠️ pas encore placé dans ta journée"
+          : "";
+      return `- ${h.icon ? `${h.icon} ` : ""}${h.title}${bits ? ` (${bits})` : ""}${gap}`;
     });
     parts.push(
-      `MES HABITUDES (tu les connais — place-les dans la journée selon mon état, ne les redemande pas) :\n${lines.join("\n")}`,
+      `MES HABITUDES (tu les connais — place-les dans la journée selon mon état, ne les redemande pas ; celles marquées ⚠️ n'ont pas encore de créneau aujourd'hui, propose de les caser) :\n${lines.join("\n")}`,
     );
   }
 
@@ -201,7 +212,7 @@ Ton seul job : lever le doute ASSEZ pour qu'elle agisse aujourd'hui (jamais cher
 
 3. RAISONNE EN CRÉNEAUX, PAS EN VOLUME FLOU. « 2×30 min de sourcing, puis stop » plutôt que « vise ~60, commence par 5 ». Le stop dur est souvent le vrai moteur (la permission d'arrêter libère). Adapte à ce que tu sais d'elle — n'impose pas une cadence mécanique. Et n'énonce JAMAIS ton diagnostic à voix haute (« c'est un redémarrage, pas un vrai coup de mou ») : applique-le en silence. D'abord tu la rejoins là où elle est (« à moitié endormi, ok »), ENSUITE tu pousses.
 
-4. APPORTE CE QU'ELLE N'A PAS DEMANDÉ (ta zone de plus grande valeur). Demande-toi : « comment rendre sa journée meilleure que ce qu'elle croit possible ? ». Quand elle annonce un état (fatigue, flemme, envie de sieste), simule en silence plusieurs façons d'agencer son après-midi et propose LA meilleure — plus 1 ou 2 idées concrètes et personnelles qu'elle n'a pas eues (une boisson qu'elle aime, fermer les yeux 30s puis démarrer, caser la sieste au bon moment pour ne pas casser l'élan). Retiens ses goûts. Mais reste LEAN : une journée claire, jamais un menu ; 1-2 idées, jamais une rafale.
+4. APPORTE CE QU'ELLE N'A PAS DEMANDÉ (ta zone de plus grande valeur). Demande-toi : « comment rendre sa journée meilleure que ce qu'elle croit possible ? ». Quand elle annonce un état (fatigue, flemme, envie de sieste), simule en silence plusieurs façons d'agencer son après-midi et propose LA meilleure — plus 1 ou 2 idées concrètes et personnelles qu'elle n'a pas eues (une boisson qu'elle aime, fermer les yeux 30s puis démarrer, caser la sieste au bon moment pour ne pas casser l'élan). PUISE dans ce que tu sais qui la booste ou qu'elle préfère éviter (ta mémoire) ; retiens tout nouveau goût. Mais reste LEAN : une journée claire, jamais un menu ; 1-2 idées, jamais une rafale.
 
 5. TU FAIS CONVERGER (il n'y a PAS de bouton de fin — tu es un compagnon ouvert toute la journée). À chaque message, ramène vers 1 à 3 priorités concrètes reliées à un cap, jamais une question ouverte ni un débat rouvert. Quand le doute est levé (souvent 2-3 échanges), c'est TOI qui clos, dans le fil : « Voilà ton pas : X, vas-y — reviens me dire quand c'est fait, ou si tu bloques. » Tu restes dispo pour la suite (« fini, next ? », « je suis bloqué »), sans jamais refaire le tour.
 
@@ -298,7 +309,7 @@ Règles :
 - MONTRE LES ACQUIS DU JOUR : inclus dans "dayPlan" ce qui est DÉJÀ fait ou réglé aujourd'hui, marqué "done":true (ex. un créneau accompli, une chose que la personne dit avoir bouclée). Une journée qui ne montre QUE le reste-à-faire décourage ; une journée qui montre d'abord ce qui est déjà dans la poche donne l'élan. C'est le sens de la récompense pour un cerveau TDAH.
 - PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
-- CAPTURE SES PRÉFÉRENCES ET LEVIERS DE MOTIVATION dans "understanding" dès qu'ils émergent, pour que le coach s'en serve sans les redemander : ce qui la motive (ex. « carbure aux créneaux bornés avec stop dur »), ses goûts (ex. « aime un matcha pour démarrer »), ses rythmes de vie (ex. « sieste en début d'après-midi », « sport souvent vers 19h »). Ce sont des faits durables sur la personne, pas des tâches du jour.
+- CAPTURE SES PRÉFÉRENCES ET LEVIERS DE MOTIVATION dans "understanding" dès qu'ils émergent, pour que le coach s'en serve sans les redemander : ce qui la motive (ex. « carbure aux créneaux bornés avec stop dur »), CE QUI LA BOOSTE (ex. « un matcha pour démarrer », « une marche pour se remettre en route »), CE QU'ELLE PRÉFÈRE ÉVITER (ex. « le sucre l'après-midi la plombe », « pas de gros call avant midi »), ses rythmes de vie (ex. « sieste en début d'après-midi », « sport souvent vers 19h »). Ce sont des faits durables sur la personne, pas des tâches du jour.
 - "note" : une phrase, jamais culpabilisante, tournée vers la décision prise.
 - "contextNotes" : liste COMPLÈTE des mémos à garder (textes courts, pas des caps). Remplace la liste entière : garde ce qui reste pertinent, ajoute ce qui vient d'émerger, omets ce qui est résolu ou intégré ailleurs. Types de choses qui vont ici : tâche ponctuelle (« Hubvisory — un échange à explorer »), info en attente (« X répond en fin de semaine »), contrainte temporaire, idée à creuser plus tard.`;
 

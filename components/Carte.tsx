@@ -386,6 +386,19 @@ function CapPath({
         </p>
       ) : open ? null : (
         <div className="mt-2 flex flex-col gap-1 pl-0.5 text-sm leading-relaxed">
+          {steps.length > 0 && (
+            <p>
+              <span className="font-medium text-ink">
+                {steps.filter((s) => s.done).length}/{steps.length} jalons
+              </span>
+              {o.target && (
+                <span className="text-faint">
+                  {" "}
+                  · cible&nbsp;: {o.target}
+                </span>
+              )}
+            </p>
+          )}
           {active.length > 0 && (
             <p className="text-muted">
               <span className="text-faint">en continu&nbsp;: </span>
@@ -779,29 +792,41 @@ function AutoInput({ onCommit }: { onCommit: (v: string) => void }) {
   );
 }
 
-// ═════════════════════ NIVEAU 2 : SEMAINES (frise) ═══════════════════════
-// La frise calendaire partagée — un seul axe commun pour tous les caps.
+// ═════════════════════ NIVEAU 2 : SEMAINES (projection) ═══════════════════
+// La frise projette la SÉQUENCE DES ÉTAPES (les jalons sont séquentiels par
+// nature) : le jalon courant « maintenant », les suivants déroulés devant, pour
+// se projeter et sentir l'enjeu d'aujourd'hui. Estimations LARGES (≈ 1 semaine
+// par étape si le phasage n'est pas posé), jamais des dates. Les flux (continus)
+// ne sont PAS mis en barres — ça mentirait sur leur nature : rappelés en légende.
 
-interface Bar {
+interface StepBar {
   id: string;
   title: string;
   fromWeek: number;
   toWeek: number;
-  placed: boolean;
-  waiting: boolean;
-  voie?: string;
+  current: boolean; // le prochain jalon à franchir
 }
 
-function collectBars(o: Objective): Bar[] {
-  return (o.flows ?? []).map((f) => {
-    const from = f.fromWeek ?? 0;
-    return {
-      id: f.id, title: f.title,
-      fromWeek: from, toWeek: f.toWeek ?? from,
-      placed: f.fromWeek !== undefined,
-      waiting: !!f.waitingOn, voie: f.voie,
-    };
+// Projette les étapes NON franchies en séquence. Honore le phasage explicite
+// (fromWeek/toWeek) s'il est posé, sinon déroule ~1 semaine chacune depuis
+// « cette semaine » (0). Les jalons franchis sont derrière : pas sur la frise.
+function projectSteps(o: Objective): StepBar[] {
+  const undone = (o.steps ?? []).filter((s) => !s.done);
+  const bars: StepBar[] = [];
+  let cursor = 0;
+  undone.forEach((s, i) => {
+    const from = s.fromWeek ?? cursor;
+    const to = Math.max(from, s.toWeek ?? from);
+    bars.push({ id: s.id, title: s.title, fromWeek: from, toWeek: to, current: i === 0 });
+    cursor = to + 1;
   });
+  return bars;
+}
+
+function activeFlowTitles(o: Objective): string[] {
+  return (o.flows ?? [])
+    .filter((f) => !f.waitingOn && f.state !== "pause")
+    .map((f) => f.title);
 }
 
 function mondayOfThisWeek(): Date {
@@ -822,12 +847,13 @@ function TimelineView({
   const groups = objectives.map((o) => ({
     o,
     color: colorOf(o.id),
-    bars: collectBars(o),
+    steps: projectSteps(o),
+    flows: activeFlowTitles(o),
   }));
 
-  const allBars = groups.flatMap((g) => g.bars);
+  const allBars = groups.flatMap((g) => g.steps);
   const maxTo = Math.max(4, ...allBars.map((b) => b.toWeek));
-  const N = Math.min(16, Math.max(10, maxTo + 2));
+  const N = Math.min(16, Math.max(8, maxTo + 2));
 
   const monday = mondayOfThisWeek();
   const weeks = Array.from({ length: N }, (_, i) => {
@@ -909,29 +935,19 @@ function TimelineView({
           </div>
 
           {/* Un groupe par objectif */}
-          {groups.map(({ o, color, bars }) => (
+          {groups.map(({ o, color, steps, flows }) => (
             <ObjectiveGroup
               key={o.id}
               o={o}
               color={color}
-              bars={bars}
+              steps={steps}
+              flows={flows}
               N={N}
               onOpen={onOpen}
               onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
               onEditTitle={
                 onUpdateObjective
                   ? (t) => onUpdateObjective(o.id, (p) => ({ ...p, title: t }))
-                  : undefined
-              }
-              onEditFlow={
-                onUpdateObjective
-                  ? (flowId, t) =>
-                      onUpdateObjective(o.id, (p) => ({
-                        ...p,
-                        flows: (p.flows ?? []).map((f) =>
-                          f.id === flowId ? { ...f, title: t } : f,
-                        ),
-                      }))
                   : undefined
               }
             />
@@ -945,38 +961,29 @@ function TimelineView({
 function ObjectiveGroup({
   o,
   color,
-  bars,
+  steps,
+  flows,
   N,
   onOpen,
   onDelete,
   onEditTitle,
-  onEditFlow,
 }: {
   o: Objective;
   color: string;
-  bars: Bar[];
+  steps: StepBar[];
+  flows: string[];
   N: number;
   onOpen: () => void;
   onDelete?: () => void;
   onEditTitle?: (title: string) => void;
-  onEditFlow?: (flowId: string, title: string) => void;
 }) {
   const chip = deadlineChip(o);
   const momentum = momentumLabel(o);
   const asleep = momentum?.startsWith("dort");
 
-  const ganttBars = bars.filter((b) => b.placed && !b.waiting);
-
-  // Indicateur de durée globale du cap (span de tous les flows placés)
-  const capFrom = ganttBars.length ? Math.min(...ganttBars.map((b) => b.fromWeek)) : undefined;
-  const capTo = ganttBars.length ? Math.max(...ganttBars.map((b) => b.toWeek)) : undefined;
-
-  const voies: string[] = [];
-  for (const b of ganttBars) {
-    const k = b.voie ?? "";
-    if (!voies.includes(k)) voies.push(k);
-  }
-  const multiVoie = voies.filter((v) => v).length > 1;
+  const allSteps = o.steps ?? [];
+  const total = allSteps.length;
+  const doneCount = allSteps.filter((s) => s.done).length;
 
   return (
     <div className="group mt-5 border-t border-line/70 pt-3 first:mt-2 first:border-t-0">
@@ -992,6 +999,29 @@ function ObjectiveGroup({
           inputClassName="font-display text-base font-medium text-ink border-b border-cap/40 w-64"
         />
         <span className="ml-auto flex shrink-0 items-center gap-2">
+          {total > 0 && (
+            <span
+              className="rounded-full bg-sink px-2 py-0.5 text-[0.68rem] font-medium text-muted"
+              title="jalons franchis"
+            >
+              {doneCount}/{total} jalons
+            </span>
+          )}
+          {o.target ? (
+            <span
+              className="max-w-[10rem] truncate rounded-full bg-sink px-2 py-0.5 text-[0.68rem] text-muted"
+              title={`cible : ${o.target}`}
+            >
+              🎯 {o.target}
+            </span>
+          ) : (
+            <button
+              onClick={onOpen}
+              className="text-[0.68rem] text-faint underline decoration-dotted hover:text-cap-ink"
+            >
+              cible à définir
+            </button>
+          )}
           {asleep ? (
             <span className="rounded-full bg-gold-soft px-2 py-0.5 text-[0.68rem] text-gold">
               {momentum}
@@ -1004,13 +1034,6 @@ function ObjectiveGroup({
             >
               {chip.label}
             </span>
-          ) : !o.target ? (
-            <button
-              onClick={onOpen}
-              className="text-[0.68rem] text-faint underline decoration-dotted hover:text-cap-ink"
-            >
-              cible à définir
-            </button>
           ) : null}
           {onDelete && (
             <button
@@ -1024,73 +1047,49 @@ function ObjectiveGroup({
         </span>
       </div>
 
-      {/* Indicateur de durée globale du cap sur la frise */}
-      {capFrom !== undefined && (
-        <div className="flex" style={{ height: 6 }}>
-          <div style={{ width: LABEL_W }} />
-          <div className="relative" style={{ width: N * WEEK_W }}>
-            <div
-              className="absolute rounded-full"
-              style={{
-                left: capFrom * WEEK_W + 3,
-                width: (capTo! - capFrom + 1) * WEEK_W - 6,
-                height: 3,
-                top: 1,
-                background: color,
-                opacity: 0.15,
-              }}
-            />
-          </div>
-        </div>
+      {/* La projection des jalons : le courant « maintenant », les suivants devant. */}
+      {steps.length === 0 ? (
+        total > 0 ? (
+          <p className="pl-1 text-xs italic text-faint">
+            tous les jalons sont franchis ✓
+          </p>
+        ) : (
+          <p className="pl-1 text-xs italic text-faint">
+            à cartographier —{" "}
+            <button
+              onClick={onOpen}
+              className="underline decoration-dotted hover:text-cap-ink"
+            >
+              parles-en avec Cap
+            </button>
+          </p>
+        )
+      ) : (
+        steps.map((b) => <StepRow key={b.id} bar={b} N={N} color={color} />)
       )}
 
-      {/* Activités : Gantt flows actifs */}
-      {bars.length === 0 && !o.steps?.length ? (
-        <p className="pl-1 text-xs italic text-faint">
-          à cartographier — parles-en avec Cap
+      {/* Le moteur (flux continus) en légende — pas en barres : un flux est un
+          débit, pas une période ; le mettre en Gantt mentirait sur sa nature. */}
+      {flows.length > 0 && (
+        <p className="mt-1.5 pl-1 text-[0.7rem] text-faint">
+          <span className="text-muted">moteur en continu&nbsp;:</span>{" "}
+          {flows.join(" · ")}
         </p>
-      ) : (
-        <>
-          {ganttBars.length > 0 &&
-            voies.map((voie) => {
-              const rows = ganttBars.filter((b) => (b.voie ?? "") === voie);
-              if (rows.length === 0) return null;
-              return (
-                <div key={voie || "_"}>
-                  {multiVoie && voie && (
-                    <p className="pb-0.5 pl-1 pt-1 text-[0.68rem] font-medium uppercase tracking-wide text-faint">
-                      {voie}
-                    </p>
-                  )}
-                  {rows.map((b) => (
-                    <BarRow
-                      key={b.id}
-                      bar={b}
-                      N={N}
-                      color={color}
-                      onEdit={onEditFlow ? (t) => onEditFlow(b.id, t) : undefined}
-                    />
-                  ))}
-                </div>
-              );
-            })}
-          {/* Flows en attente → dans "Contexte en mémoire" sur Aujourd'hui */}
-        </>
       )}
     </div>
   );
 }
 
-function BarRow({
+// Une ligne de la projection : le libellé du jalon (le courant marqué ◉) et sa
+// barre sur la frise. Le jalon courant est plus appuyé, les suivants estompés.
+function StepRow({
   bar,
   N,
   color,
-  onEdit,
 }: {
-  bar: Bar;
+  bar: StepBar;
   N: number;
   color: string;
-  onEdit?: (title: string) => void;
 }) {
   const left = bar.fromWeek * WEEK_W;
   const width = Math.max(WEEK_W, (bar.toWeek - bar.fromWeek + 1) * WEEK_W) - 6;
@@ -1102,12 +1101,10 @@ function BarRow({
         style={{ width: LABEL_W }}
         title={bar.title}
       >
-        <InlineEdit
-          value={bar.title}
-          onChange={onEdit}
-          className="text-muted"
-          inputClassName="text-xs text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
-        />
+        <span className={bar.current ? "font-medium text-ink" : "text-muted"}>
+          {bar.current && <span className="mr-1 text-cap">◉</span>}
+          {bar.title}
+        </span>
       </div>
       <div className="relative" style={{ width: N * WEEK_W, height: "100%" }}>
         <div
@@ -1117,9 +1114,8 @@ function BarRow({
             width,
             height: 10,
             transform: "translateY(-50%)",
-            background: bar.placed ? color : "transparent",
-            opacity: 0.45,
-            border: !bar.placed ? "1.5px dashed var(--color-line)" : "none",
+            background: color,
+            opacity: bar.current ? 0.55 : 0.28,
           }}
         />
       </div>

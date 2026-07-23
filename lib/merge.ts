@@ -29,6 +29,20 @@ export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
+// Clé de rapprochement tolérante : on fusionne les quasi-identiques (casse,
+// accents, ponctuation, espaces) au lieu d'en faire des doublons — SANS aller
+// jusqu'au flou (« Sourcing » ≠ « Sourcing de boîtes » restent distincts).
+// « Sourcing de boîtes » et « sourcing de boites » deviennent la même clé.
+export function normKey(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // enlève les accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ") // ponctuation → espace
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 // Vrai « même jour » dans le fuseau de CELUI QUI REGARDE : la comparaison se
 // fait côté client sur des timestamps complets — jamais de minuit serveur
 // (le serveur déployé vit en UTC, pas dans le fuseau de la personne).
@@ -110,8 +124,8 @@ function mergeSteps(existing: Step[] | undefined, proposed: ProposedSteps): Step
   return proposed
     .filter((m) => m.title?.trim())
     .map((m) => {
-      const key = m.title.trim().toLowerCase();
-      const prev = existing?.find((e) => e.title.trim().toLowerCase() === key);
+      const key = normKey(m.title);
+      const prev = existing?.find((e) => normKey(e.title) === key);
       return {
         id: prev?.id ?? newId(),
         title: m.title.trim(),
@@ -129,8 +143,8 @@ function mergeFlows(existing: Flow[] | undefined, proposed: ProposedFlows): Flow
     .filter((p) => p.title?.trim())
     .map((p) => {
       const title = p.title.trim();
-      const key = title.toLowerCase();
-      const prev = existing?.find((f) => f.title.trim().toLowerCase() === key);
+      const key = normKey(title);
+      const prev = existing?.find((f) => normKey(f.title) === key);
       return {
         id: prev?.id ?? newId(),
         title,
@@ -190,11 +204,11 @@ function mergeObjectives(
   const now = new Date().toISOString();
   let list = [...existing];
   for (const p of proposed) {
-    const key = p.title.trim().toLowerCase();
-    const prevKey = p.previousTitle?.trim().toLowerCase();
+    const key = normKey(p.title);
+    const prevKey = p.previousTitle ? normKey(p.previousTitle) : undefined;
     if (!key) continue;
     const idx = list.findIndex((o) => {
-      const t = o.title.trim().toLowerCase();
+      const t = normKey(o.title);
       return (prevKey && t === prevKey) || t === key;
     });
     const deadline = normalizeDate(p.deadline);
@@ -247,9 +261,9 @@ function linkPriorities(
     .filter((p) => p.title?.trim())
     .slice(0, 3)
     .map((p) => {
-      const key = p.objective?.trim().toLowerCase();
+      const key = p.objective ? normKey(p.objective) : undefined;
       const obj = key
-        ? objectives.find((o) => o.title.trim().toLowerCase() === key)
+        ? objectives.find((o) => normKey(o.title) === key)
         : undefined;
       return {
         id: newId(),
@@ -270,8 +284,8 @@ function mergeHabits(
   return proposed
     .filter((h) => h.title?.trim())
     .map((h) => {
-      const key = h.title.trim().toLowerCase();
-      const prev = existing?.find((e) => e.title.trim().toLowerCase() === key);
+      const key = normKey(h.title);
+      const prev = existing?.find((e) => normKey(e.title) === key);
       return {
         id: prev?.id ?? newId(),
         title: h.title.trim(),
@@ -304,9 +318,7 @@ function linkDayPlan(
     title?: string,
   ) =>
     title
-      ? list?.find(
-          (x) => x.title.trim().toLowerCase() === title.trim().toLowerCase(),
-        )
+      ? list?.find((x) => normKey(x.title) === normKey(title))
       : undefined;
   return proposed
     .filter((d) => d.title?.trim())

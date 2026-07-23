@@ -310,6 +310,9 @@ export default function Home() {
           {state.history && state.history.length > 0 && (
             <HistorySection history={state.history} />
           )}
+          {state.understanding?.trim() && (
+            <UnderstandingSection text={state.understanding.trim()} />
+          )}
         </div>
       )}
 
@@ -974,6 +977,28 @@ function HistorySection({ history }: { history: DayLog[] }) {
             );
           })}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// Ce que Cap a retenu de toi (goûts, leviers, ce qui te booste / à éviter,
+// rythmes) : un miroir lisible de `understanding`, pour voir ce dont il se sert.
+function UnderstandingSection({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-8">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-faint transition-colors hover:text-muted"
+      >
+        <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
+        Ce que Cap sait de toi
+      </button>
+      {open && (
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted">
+          {text}
+        </p>
       )}
     </div>
   );

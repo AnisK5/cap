@@ -54,6 +54,33 @@ describe("applyReconciliation — caps", () => {
     expect(next.objectives[0].horizon).toBe("septembre");
   });
 
+  it("ne crée pas de doublon sur une variante de casse/accent/ponctuation", () => {
+    const state = baseState([jobCap()]);
+    // « un job PRODUCT ! » doit matcher « Un job product » (pas un doublon)
+    const next = applyReconciliation(state, {
+      objectives: [{ title: "un job PRODUCT !", horizon: "septembre" }],
+    });
+    expect(next.objectives).toHaveLength(1);
+    expect(next.objectives[0].id).toBe("obj1");
+    expect(next.objectives[0].horizon).toBe("septembre");
+  });
+
+  it("fusionne un flux quasi-identique au lieu de le dupliquer", () => {
+    const state = baseState([jobCap()]);
+    const next = applyReconciliation(state, {
+      objectives: [
+        {
+          title: "Un job product",
+          flows: [{ title: "sourcing de boites" }, { title: "Relances" }],
+        },
+      ],
+    });
+    const flows = next.objectives[0].flows!;
+    expect(flows).toHaveLength(2);
+    // « sourcing de boites » a retrouvé l'id de « Sourcing de boîtes »
+    expect(flows.find((f) => f.id === "f1")).toBeTruthy();
+  });
+
   it("crée un nouveau cap avec ses étapes et flux", () => {
     const state = baseState([]);
     const r: Reconciliation = {
