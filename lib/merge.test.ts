@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyReconciliation, rollDay, type Reconciliation } from "./merge";
+import {
+  applyReconciliation,
+  dedupeObjectives,
+  rollDay,
+  type Reconciliation,
+} from "./merge";
 import type { CapState, Objective } from "./types";
 
 function baseState(objectives: Objective[] = []): CapState {
@@ -277,6 +282,62 @@ describe("applyReconciliation — habitudes & journée", () => {
       priorities: [{ title: "nouvelle prio", why: "" }],
     });
     expect(stillKept.dayPlan).toHaveLength(1);
+  });
+});
+
+describe("dedupeObjectives — nettoyage déterministe des doublons", () => {
+  it("fusionne un flux dont les mots sont un sous-ensemble d'un autre", () => {
+    const o: Objective = {
+      id: "o1",
+      title: "Job",
+      deadline: null,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      flows: [
+        { id: "f1", title: "Sourcing", state: "actif" },
+        { id: "f2", title: "Sourcing de boîtes", state: "ralenti" },
+        { id: "f3", title: "Relances", waitingOn: "réponses" },
+      ],
+    };
+    const { objectives, removed } = dedupeObjectives([o]);
+    expect(removed).toBe(1);
+    const flows = objectives[0].flows!;
+    expect(flows).toHaveLength(2);
+    // le titre le plus riche est gardé
+    expect(flows.find((f) => f.title === "Sourcing de boîtes")).toBeTruthy();
+    expect(flows.find((f) => f.title === "Sourcing")).toBeFalsy();
+    expect(flows.find((f) => f.title === "Relances")).toBeTruthy();
+  });
+
+  it("fusionne deux étapes quasi-identiques, « fait » survit par OU", () => {
+    const o: Objective = {
+      id: "o1",
+      title: "Job",
+      deadline: null,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      steps: [
+        { id: "s1", title: "Retravailler le CV", done: true },
+        { id: "s2", title: "retravailler le cv !", done: false },
+      ],
+    };
+    const { objectives, removed } = dedupeObjectives([o]);
+    expect(removed).toBe(1);
+    expect(objectives[0].steps).toHaveLength(1);
+    expect(objectives[0].steps![0].done).toBe(true);
+  });
+
+  it("ne touche pas des flux réellement distincts", () => {
+    const o: Objective = {
+      id: "o1",
+      title: "Job",
+      deadline: null,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      flows: [
+        { id: "f1", title: "Sourcing" },
+        { id: "f2", title: "Entretiens" },
+      ],
+    };
+    const { removed } = dedupeObjectives([o]);
+    expect(removed).toBe(0);
   });
 });
 

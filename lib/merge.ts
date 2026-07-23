@@ -428,3 +428,70 @@ export function rollDay(state: CapState, dayIso: string): CapState {
     history,
   };
 }
+
+// Nettoyage DÉTERMINISTE des doublons DANS chaque cap : deux flux (ou deux
+// étapes) sont fusionnés si leurs mots normalisés se recouvrent — clé identique
+// (« Sourcing de boîtes » = « sourcing de boites ») OU l'un est un sous-ensemble
+// de mots de l'autre (« Sourcing » ⊂ « Sourcing de boîtes »). On garde le titre
+// le plus riche (le plus de mots), « fait » survit par OU, les états par priorité
+// au canonique. Fiable, sans IA — c'est ce que fait le bouton « Nettoyer ».
+export function dedupeObjectives(objectives: Objective[]): {
+  objectives: Objective[];
+  removed: number;
+} {
+  let removed = 0;
+  const wordsOf = (t: string) => new Set(normKey(t).split(" ").filter(Boolean));
+  const related = (a: Set<string>, b: Set<string>) => {
+    if (a.size === 0 || b.size === 0) return a.size === b.size;
+    const sub = (x: Set<string>, y: Set<string>) => [...x].every((w) => y.has(w));
+    return sub(a, b) || sub(b, a);
+  };
+
+  function dedupe<T extends { title: string }>(
+    items: T[],
+    merge: (canon: T, dup: T) => T,
+  ): T[] {
+    const kept: { item: T; w: Set<string> }[] = [];
+    for (const it of items) {
+      const w = wordsOf(it.title);
+      const hit = kept.find((k) => related(k.w, w));
+      if (hit) {
+        removed++;
+        const canonIsNew = w.size > hit.w.size;
+        const canon = canonIsNew ? it : hit.item;
+        const dup = canonIsNew ? hit.item : it;
+        hit.item = merge(canon, dup);
+        if (canonIsNew) hit.w = w;
+      } else {
+        kept.push({ item: it, w });
+      }
+    }
+    return kept.map((k) => k.item);
+  }
+
+  const out = objectives.map((o) => {
+    const steps = o.steps
+      ? dedupe(o.steps, (canon, dup) => ({
+          ...canon,
+          done: canon.done || dup.done,
+        }))
+      : o.steps;
+    const flows = o.flows
+      ? dedupe(o.flows, (canon, dup) => ({
+          ...canon,
+          state: canon.state ?? dup.state,
+          waitingOn: canon.waitingOn ?? dup.waitingOn,
+          fromWeek: canon.fromWeek ?? dup.fromWeek,
+          toWeek: canon.toWeek ?? dup.toWeek,
+          voie: canon.voie ?? dup.voie,
+        }))
+      : o.flows;
+    return {
+      ...o,
+      ...(steps ? { steps } : {}),
+      ...(flows ? { flows } : {}),
+    };
+  });
+
+  return { objectives: out, removed };
+}

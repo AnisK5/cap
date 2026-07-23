@@ -38,9 +38,14 @@ export default function Home() {
     try {
       const res = await fetch("/api/clean", { method: "POST" });
       const j = await res.json();
-      if (res.ok && j.state) {
-        replace(j);
-        setToast("Carte nettoyée — dis-moi si quelque chose a sauté");
+      if (res.ok) {
+        if (j.state) replace(j);
+        const n = (j.removed ?? 0) as number;
+        setToast(
+          n > 0
+            ? `${n} doublon${n > 1 ? "s" : ""} fusionné${n > 1 ? "s" : ""}`
+            : "Aucun doublon — ta carte est déjà propre",
+        );
         setTimeout(() => setToast(null), 4000);
       }
     } catch {
