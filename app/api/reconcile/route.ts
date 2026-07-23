@@ -1,7 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireUser } from "@/lib/auth";
 import { getSessionById, getState, putState } from "@/lib/db";
-import { applyReconciliation, type Reconciliation } from "@/lib/merge";
+import {
+  applyReconciliation,
+  dedupeObjectives,
+  type Reconciliation,
+} from "@/lib/merge";
 import { RECONCILE_MODEL } from "@/lib/model";
 import {
   RECONCILE_INSTRUCTION,
@@ -81,7 +85,10 @@ export async function POST(req: Request) {
     for (let attempt = 0; attempt < 3 && !written; attempt++) {
       const current = await getState(supabase, user.id);
       const next = applyReconciliation(current?.state ?? EMPTY_STATE, r);
-      written = await putState(supabase, user.id, next, current?.updatedAt);
+      // Auto-nettoyage : la carte se dédoublonne à chaque écriture (caps en
+      // double + flux/étapes redondants), pour de vrai — pas seulement au bouton.
+      const cleaned = { ...next, objectives: dedupeObjectives(next.objectives).objectives };
+      written = await putState(supabase, user.id, cleaned, current?.updatedAt);
     }
     if (!written) {
       throw new Error("Écritures concurrentes répétées — réessaie.");

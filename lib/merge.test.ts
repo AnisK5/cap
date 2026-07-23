@@ -325,6 +325,33 @@ describe("dedupeObjectives — nettoyage déterministe des doublons", () => {
     expect(objectives[0].steps![0].done).toBe(true);
   });
 
+  it("fusionne deux CAPS de même titre (union flux/étapes, id du premier gardé)", () => {
+    const a: Objective = {
+      id: "cap-a",
+      title: "Écart",
+      deadline: null,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      target: "10 testeurs",
+      flows: [{ id: "f1", title: "Diffusion" }],
+    };
+    const b: Objective = {
+      id: "cap-b",
+      title: "écart",
+      deadline: null,
+      createdAt: "2026-07-05T00:00:00.000Z",
+      horizon: "septembre",
+      flows: [{ id: "f2", title: "Retours testeurs" }],
+    };
+    const { objectives, removed } = dedupeObjectives([a, b]);
+    expect(removed).toBe(1);
+    expect(objectives).toHaveLength(1);
+    const cap = objectives[0];
+    expect(cap.id).toBe("cap-a"); // id du premier préservé
+    expect(cap.target).toBe("10 testeurs"); // champs non vides fusionnés
+    expect(cap.horizon).toBe("septembre");
+    expect(cap.flows).toHaveLength(2); // union des flux
+  });
+
   it("ne touche pas des flux réellement distincts", () => {
     const o: Objective = {
       id: "o1",

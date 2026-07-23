@@ -469,14 +469,47 @@ export function dedupeObjectives(objectives: Objective[]): {
     return kept.map((k) => k.item);
   }
 
-  const out = objectives.map((o) => {
-    const steps = o.steps
+  // 1) Fusion des CAPS en double (clé EXACTE — conservateur : même titre = même
+  //    cap). On garde le premier id (les priorités/journée y pointent), le titre
+  //    le plus riche, l'union des flux/étapes, et les champs non vides.
+  const capMap = new Map<string, Objective>();
+  for (const o of objectives) {
+    const k = normKey(o.title);
+    const prev = capMap.get(k);
+    if (!prev) {
+      capMap.set(k, o);
+      continue;
+    }
+    removed++;
+    const richerTitle =
+      wordsOf(o.title).size > wordsOf(prev.title).size ? o.title : prev.title;
+    const moved = [prev.lastMovedAt, o.lastMovedAt].filter(Boolean).sort();
+    capMap.set(k, {
+      ...prev,
+      ...o,
+      id: prev.id,
+      title: richerTitle,
+      createdAt: prev.createdAt < o.createdAt ? prev.createdAt : o.createdAt,
+      deadline: prev.deadline ?? o.deadline,
+      target: prev.target ?? o.target,
+      horizon: prev.horizon ?? o.horizon,
+      unlocks: prev.unlocks ?? o.unlocks,
+      icon: prev.icon ?? o.icon,
+      lastMovedAt: moved.length ? moved[moved.length - 1] : undefined,
+      steps: [...(prev.steps ?? []), ...(o.steps ?? [])],
+      flows: [...(prev.flows ?? []), ...(o.flows ?? [])],
+    });
+  }
+
+  // 2) Dédup des flux/étapes DANS chaque cap (exact + sous-ensemble de mots).
+  const out = [...capMap.values()].map((o) => {
+    const steps = o.steps?.length
       ? dedupe(o.steps, (canon, dup) => ({
           ...canon,
           done: canon.done || dup.done,
         }))
       : o.steps;
-    const flows = o.flows
+    const flows = o.flows?.length
       ? dedupe(o.flows, (canon, dup) => ({
           ...canon,
           state: canon.state ?? dup.state,
