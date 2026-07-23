@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { requireUser } from "@/lib/auth";
 import { getState, saveSessionMessages } from "@/lib/db";
 import { CHAT_MODEL } from "@/lib/model";
-import { chatSystemPrompt, LANDING_CUE, OPENING_CUE } from "@/lib/prompts";
+import { chatSystemPrompt, OPENING_CUE, RESUME_CUE } from "@/lib/prompts";
 import { EMPTY_STATE, type ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 interface Body {
   sessionId: string;
   messages: ChatMessage[]; // la conversation affichée, sans la réponse à venir
-  landing?: boolean; // l'utilisateur a cliqué « C'est clair » → on atterrit
+  resume?: boolean; // reprise après une pause → check-in gap-aware
+  sinceMin?: number; // minutes depuis le dernier échange (pour la reprise)
   timeZone?: string; // fuseau IANA du client (le serveur vit en UTC)
 }
 
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "Requête invalide." }, { status: 400 });
   }
-  const { sessionId, messages = [], landing, timeZone } = body;
+  const { sessionId, messages = [], resume, sinceMin, timeZone } = body;
   if (!sessionId) {
     return Response.json({ error: "sessionId manquant." }, { status: 400 });
   }
@@ -46,13 +47,13 @@ export async function POST(req: Request) {
     { role: "user", content: OPENING_CUE },
     ...messages.map((m) => ({ role: m.role, content: m.content })),
   ];
-  if (landing) apiMessages.push({ role: "user", content: LANDING_CUE });
+  if (resume) apiMessages.push({ role: "user", content: RESUME_CUE });
 
   const client = new Anthropic({ apiKey });
   const stream = client.messages.stream({
     model: CHAT_MODEL,
     max_tokens: 1200,
-    system: chatSystemPrompt(state, timeZone),
+    system: chatSystemPrompt(state, timeZone, sinceMin),
     messages: apiMessages,
     tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
   });

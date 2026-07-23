@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireUser } from "@/lib/auth";
-import { getSessionById, getState, putState, saveSessionMessages } from "@/lib/db";
-import { applyReconciliation, previewDay, type Reconciliation } from "@/lib/merge";
+import { getSessionById, getState, putState } from "@/lib/db";
+import { applyReconciliation, type Reconciliation } from "@/lib/merge";
 import { RECONCILE_MODEL } from "@/lib/model";
 import {
   RECONCILE_INSTRUCTION,
@@ -15,7 +15,6 @@ export const dynamic = "force-dynamic";
 
 interface Body {
   sessionId: string;
-  live?: boolean; // pendant la conversation : structure + compréhension seulement
 }
 
 // Lit la conversation en DB, demande la réconciliation au modèle (tool-use =
@@ -38,7 +37,7 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "Requête invalide." }, { status: 400 });
   }
-  const { sessionId, live } = body;
+  const { sessionId } = body;
   if (!sessionId) {
     return Response.json({ error: "sessionId manquant." }, { status: 400 });
   }
@@ -77,28 +76,18 @@ export async function POST(req: Request) {
     const r = block.input as Reconciliation;
 
     // Fusion + écriture, avec retry si l'état a bougé pendant l'appel LLM
-    // (autre réconcile live encore en vol, édition manuelle…).
+    // (autre réconcile encore en vol, édition manuelle…). Tout commit en direct.
     let written = null;
     for (let attempt = 0; attempt < 3 && !written; attempt++) {
       const current = await getState(supabase, user.id);
-      const next = applyReconciliation(current?.state ?? EMPTY_STATE, r, { live });
+      const next = applyReconciliation(current?.state ?? EMPTY_STATE, r);
       written = await putState(supabase, user.id, next, current?.updatedAt);
     }
     if (!written) {
       throw new Error("Écritures concurrentes répétées — réessaie.");
     }
 
-    if (!live) {
-      await saveSessionMessages(supabase, user.id, sessionId, session.messages, true);
-    }
-
-    // En live : la journée n'est PAS committée (réservée à l'atterrissage),
-    // mais on renvoie son brouillon pour l'afficher « en cours » dans la conv.
-    const preview = live
-      ? previewDay(written.state.objectives, written.state.habits, r)
-      : null;
-
-    return Response.json({ ...written, note: r.note ?? null, preview });
+    return Response.json({ ...written, note: r.note ?? null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erreur de réconciliation.";
     return Response.json({ error: msg }, { status: 500 });

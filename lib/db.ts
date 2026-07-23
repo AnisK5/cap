@@ -131,6 +131,32 @@ export async function getOpenSessionToday(
     : null;
 }
 
+// La session la PLUS RÉCENTE, quel que soit son état : c'est le « fil du jour »
+// du modèle compagnon. On la reprend si elle date d'aujourd'hui, sinon on roule
+// vers un nouveau jour. `updatedAt` sert au calcul de l'écart (reprise gap-aware).
+export async function getLatestSession(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<(StoredSession & { updatedAt: string }) | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("id, started_at, updated_at, messages, landed")
+    .eq("user_id", userId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Lecture de la session : ${error.message}`);
+  return data
+    ? {
+        id: data.id as string,
+        startedAt: data.started_at as string,
+        updatedAt: (data.updated_at ?? data.started_at) as string,
+        messages: (data.messages ?? []) as ChatMessage[],
+        landed: data.landed as boolean,
+      }
+    : null;
+}
+
 export async function getSessionById(
   supabase: SupabaseClient,
   userId: string,

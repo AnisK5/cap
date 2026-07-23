@@ -11,11 +11,12 @@ import type {
   CapState,
   ContextNote,
   DayItem,
+  DayLog,
   Habit,
   Objective,
   Priority,
 } from "@/lib/types";
-import AuClair, { type LandedPayload } from "@/components/AuClair";
+import AuClair, { type DayRow, type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -24,9 +25,10 @@ type View = "clair" | "today" | "carte";
 
 export default function Home() {
   const { state, ready, hasServerState, replace, save } = useCap();
-  const [view, setView] = useState<View>("today");
-  const [justLanded, setJustLanded] = useState(false);
+  const [view, setView] = useState<View>("clair");
   const [toast, setToast] = useState<string | null>(null);
+  // Plus d'atterrissage : pas d'animation de « pose » d'un tour à l'autre.
+  const justLanded = false;
 
   const openClair = useCallback(() => setView("clair"), []);
 
@@ -112,23 +114,13 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const onLanded = useCallback(
-    (landed: LandedPayload) => {
-      replace(landed);
-      setView("today");
-      setJustLanded(true);
-      setTimeout(() => setJustLanded(false), 1400);
-    },
-    [replace],
-  );
-
-  // Mise à jour EN DIRECT pendant la conversation : le serveur a déjà fusionné
-  // et écrit — on remplace le miroir local + petit encart de ce qui a changé.
-  const onLive = useCallback(
-    (live: LandedPayload) => {
-      replace(live);
-      if (live.note?.trim()) {
-        setToast(live.note.trim());
+  // Tout se commit en direct (modèle compagnon) : le serveur a déjà fusionné et
+  // écrit — on remplace le miroir local + petit encart de ce qui a changé.
+  const onUpdate = useCallback(
+    (s: LandedPayload) => {
+      replace(s);
+      if (s.note?.trim()) {
+        setToast(s.note.trim());
         setTimeout(() => setToast(null), 4000);
       }
     },
@@ -171,6 +163,17 @@ export default function Home() {
   const dayDone = dayPlan.filter((d) => dayDoneOf(d));
   const dayHero = dayPending[0];
   const dayRest = dayPending.slice(1);
+
+  // La journée pour le fil « Au clair » (bande secondaire, repliée) : le plan
+  // s'il existe, sinon les priorités — état résolu (une prio se coche via elle-même).
+  const chatDay: DayRow[] = hasDay
+    ? dayPlan.map((d) => ({
+        id: d.id,
+        title: d.title,
+        dueBy: d.dueBy,
+        done: dayDoneOf(d),
+      }))
+    : state.priorities.map((p) => ({ id: p.id, title: p.title, done: !!p.done }));
 
   return (
     <main className="mx-auto min-h-full max-w-6xl px-6 pb-40 pt-12 sm:px-8 sm:pb-32 sm:pt-24">
@@ -304,6 +307,9 @@ export default function Home() {
           {state.contextNotes && state.contextNotes.length > 0 && (
             <ContextSection notes={state.contextNotes} onDelete={onDeleteNote} />
           )}
+          {state.history && state.history.length > 0 && (
+            <HistorySection history={state.history} />
+          )}
         </div>
       )}
 
@@ -324,8 +330,8 @@ export default function Home() {
         <AuClair
           active={view === "clair"}
           onClose={() => setView("today")}
-          onLanded={onLanded}
-          onLive={onLive}
+          onUpdate={onUpdate}
+          day={chatDay}
         />
       </div>
 
@@ -905,6 +911,68 @@ function ContextSection({
               </button>
             </li>
           ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Historique léger : les jours passés (prévu vs fait), archivés au rollover.
+// Replié par défaut — c'est un rappel, pas le centre de l'écran.
+function HistorySection({ history }: { history: DayLog[] }) {
+  const [open, setOpen] = useState(false);
+  const fmt = (day: string) => {
+    const d = new Date(`${day}T00:00:00`);
+    return Number.isNaN(d.getTime())
+      ? day
+      : new Intl.DateTimeFormat("fr-FR", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        }).format(d);
+  };
+  return (
+    <div className="mt-8">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-faint transition-colors hover:text-muted"
+      >
+        <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
+        Jours passés ({history.length})
+      </button>
+      {open && (
+        <ul className="mt-3 space-y-4">
+          {[...history].reverse().map((log) => {
+            const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
+            const done = items.filter((i) => i.done).length;
+            return (
+              <li key={log.day}>
+                <p className="text-sm font-medium text-muted">
+                  {fmt(log.day)}
+                  <span className="ml-2 font-normal text-faint">
+                    {done}/{items.length} fait
+                  </span>
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {items.map((it, i) => (
+                    <li
+                      key={i}
+                      className="flex items-baseline gap-2 text-sm leading-snug"
+                    >
+                      <span className={it.done ? "text-cap" : "text-faint"}>
+                        {it.done ? "✓" : "○"}
+                      </span>
+                      <span
+                        className={it.done ? "text-faint" : "text-muted"}
+                      >
+                        {it.title}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

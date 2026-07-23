@@ -3,6 +3,7 @@ import type {
   ContextNote,
   DayItem,
   DayItemKind,
+  DayLog,
   Flow,
   FlowState,
   Habit,
@@ -328,67 +329,90 @@ function linkDayPlan(
     });
 }
 
-// Aperçu de la journée EN COURS pendant la conversation : on relie priorités
-// et créneaux comme à l'atterrissage, mais SANS rien committer — c'est un
-// brouillon vivant montré dans « Au clair » pour rassurer avant d'atterrir.
-export function previewDay(
-  objectives: Objective[],
-  habits: Habit[] | undefined,
-  r: Reconciliation,
-): { priorities: Priority[]; dayPlan: DayItem[] } {
-  const priorities = r.priorities ? linkPriorities(objectives, r.priorities) : [];
-  const dayPlan = r.dayPlan ? linkDayPlan(priorities, habits, r.dayPlan) : [];
-  return { priorities, dayPlan };
-}
-
-export function applyReconciliation(
-  state: CapState,
-  r: Reconciliation,
-  opts: { live?: boolean } = {},
-): CapState {
+// Passe UNIQUE : tout se commit en direct (modèle compagnon continu). Chaque
+// champ n'est touché que s'il est réellement fourni ; sinon carry-forward.
+// La remise à zéro du jour n'est JAMAIS faite ici — c'est le rôle de rollDay.
+export function applyReconciliation(state: CapState, r: Reconciliation): CapState {
   const objectives = r.objectives?.length
     ? mergeObjectives(state.objectives, r.objectives)
     : state.objectives;
 
-  const priorities =
-    !opts.live && r.priorities?.length
-      ? linkPriorities(objectives, r.priorities)
-      : state.priorities;
+  const priorities = r.priorities?.length
+    ? linkPriorities(objectives, r.priorities)
+    : state.priorities;
 
   const contextNotes =
-    !opts.live && r.contextNotes !== undefined
+    r.contextNotes !== undefined
       ? mergeContextNotes(state.contextNotes, r.contextNotes)
       : state.contextNotes;
 
-  // Les habitudes sont structurelles : apprises au fil de l'eau (live inclus).
   const habits =
     r.habits !== undefined ? mergeHabits(state.habits, r.habits) : state.habits;
 
-  // La journée n'est posée qu'à l'atterrissage. De nouvelles priorités sans
-  // nouveau plan invalident l'ancien (il pointait sur la journée d'avant).
-  const dayPlan = opts.live
-    ? state.dayPlan
-    : r.dayPlan !== undefined
+  // Le dayPlan ne change QUE s'il est explicitement re-fourni ; sinon conservé
+  // (sans ça, chaque message re-dérivant des priorités effacerait la journée).
+  const dayPlan =
+    r.dayPlan !== undefined
       ? linkDayPlan(priorities, habits, r.dayPlan)
-      : r.priorities?.length
-        ? undefined
-        : state.dayPlan;
+      : state.dayPlan;
 
   return {
     ...state,
     objectives,
     priorities,
-    prioritiesDate:
-      !opts.live && r.priorities?.length
-        ? new Date().toISOString()
-        : state.prioritiesDate,
+    prioritiesDate: r.priorities?.length
+      ? new Date().toISOString()
+      : state.prioritiesDate,
     understanding:
       r.understanding?.trim() && r.understanding.trim().length > 0
         ? r.understanding.trim()
         : state.understanding,
-    lastNote: opts.live ? state.lastNote : r.note?.trim() || state.lastNote,
+    lastNote: r.note?.trim() || state.lastNote,
     contextNotes,
     habits,
     dayPlan,
+  };
+}
+
+const HISTORY_CAP = 14;
+
+// Passage à un nouveau jour : archive la journée écoulée (priorités + plan, avec
+// leur état « fait ») dans l'historique, puis remet à zéro pour repartir propre.
+// Garde objectives / habits / understanding / contextNotes. Fonction PURE — la
+// détection du nouveau jour vit ailleurs (endpoint session). `dayIso` = le jour
+// qu'on archive.
+export function rollDay(state: CapState, dayIso: string): CapState {
+  const dayItemDone = (d: DayItem): boolean =>
+    d.kind === "priority" && d.refId
+      ? !!state.priorities.find((p) => p.id === d.refId)?.done
+      : !!d.done;
+
+  const log: DayLog = {
+    day: dayIso,
+    priorities: state.priorities.map((p) => ({ title: p.title, done: !!p.done })),
+    ...(state.dayPlan?.length
+      ? {
+          dayPlan: state.dayPlan.map((d) => ({
+            title: d.title,
+            done: dayItemDone(d),
+          })),
+        }
+      : {}),
+    ...(state.lastNote ? { note: state.lastNote } : {}),
+  };
+
+  // On n'archive que si la journée portait quelque chose (pas de log vide).
+  const hadContent =
+    state.priorities.length > 0 || (state.dayPlan?.length ?? 0) > 0;
+  const history = hadContent
+    ? [...(state.history ?? []), log].slice(-HISTORY_CAP)
+    : state.history;
+
+  return {
+    ...state,
+    priorities: [],
+    dayPlan: undefined,
+    prioritiesDate: undefined,
+    history,
   };
 }

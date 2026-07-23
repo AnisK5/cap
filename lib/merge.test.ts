@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReconciliation, type Reconciliation } from "./merge";
+import { applyReconciliation, rollDay, type Reconciliation } from "./merge";
 import type { CapState, Objective } from "./types";
 
 function baseState(objectives: Objective[] = []): CapState {
@@ -146,7 +146,7 @@ describe("applyReconciliation — steps & flows", () => {
   });
 });
 
-describe("applyReconciliation — live vs atterrissage", () => {
+describe("applyReconciliation — passe unique (tout en direct)", () => {
   const r: Reconciliation = {
     priorities: [{ title: "5-6 invitations", why: "haut du tuyau", objective: "Un job product" }],
     contextNotes: ["nouveau mémo"],
@@ -155,24 +155,24 @@ describe("applyReconciliation — live vs atterrissage", () => {
     objectives: [{ title: "Un job product", horizon: "rentrée" }],
   };
 
-  it("live : structure + compréhension seulement", () => {
-    const state = baseState([jobCap()]);
-    const next = applyReconciliation(state, r, { live: true });
-    expect(next.objectives[0].horizon).toBe("rentrée");
-    expect(next.understanding).toBe("compréhension enrichie");
-    expect(next.priorities).toEqual(state.priorities);
-    expect(next.contextNotes).toEqual(state.contextNotes);
-    expect(next.lastNote).toBe("note d'hier");
-  });
-
-  it("atterrissage : priorités reliées au cap, note et mémos remplacés", () => {
+  it("commit tout en une passe : structure + priorités reliées + note + mémos", () => {
     const state = baseState([jobCap()]);
     const next = applyReconciliation(state, r);
+    expect(next.objectives[0].horizon).toBe("rentrée");
+    expect(next.understanding).toBe("compréhension enrichie");
     expect(next.priorities).toHaveLength(1);
     expect(next.priorities[0].objectiveId).toBe("obj1");
     expect(next.lastNote).toBe("Cap sur le volume.");
     expect(next.contextNotes?.map((n) => n.text)).toEqual(["nouveau mémo"]);
     expect(next.prioritiesDate).toBeDefined();
+  });
+
+  it("les champs non fournis sont conservés (carry-forward)", () => {
+    const state = baseState([jobCap()]);
+    const next = applyReconciliation(state, { understanding: "x" });
+    expect(next.priorities).toEqual(state.priorities);
+    expect(next.contextNotes).toEqual(state.contextNotes);
+    expect(next.lastNote).toBe("note d'hier");
   });
 
   it("limite à 3 priorités", () => {
@@ -187,6 +187,13 @@ describe("applyReconciliation — live vs atterrissage", () => {
     const state = baseState([]);
     const next = applyReconciliation(state, { understanding: "  " });
     expect(next.understanding).toBe("compréhension initiale");
+  });
+
+  it("des priorités vides ne détruisent pas les existantes", () => {
+    const state = baseState([]);
+    const next = applyReconciliation(state, { priorities: [] });
+    expect(next.priorities).toEqual(state.priorities);
+    expect(next.prioritiesDate).toBe(state.prioritiesDate);
   });
 });
 
@@ -209,14 +216,12 @@ describe("applyReconciliation — habitudes & journée", () => {
     expect(next.habits![0].preferredMoment).toBe("matin");
   });
 
-  it("les habitudes s'apprennent aussi en live ; pas d'habits fourni = intactes", () => {
-    const live = applyReconciliation(withHabit(), { habits: [{ title: "Écriture" }] }, { live: true });
-    expect(live.habits!.map((h) => h.title)).toEqual(["Écriture"]);
+  it("pas d'habits fourni = habitudes intactes", () => {
     const untouched = applyReconciliation(withHabit(), { understanding: "x" });
     expect(untouched.habits).toHaveLength(1);
   });
 
-  it("la journée relie priorités et habitudes par titre, jamais en live", () => {
+  it("la journée relie priorités et habitudes par titre", () => {
     const r: Reconciliation = {
       priorities: [{ title: "8-10 invitations", why: "volume", objective: "Un job product" }],
       dayPlan: [
@@ -231,21 +236,63 @@ describe("applyReconciliation — habitudes & journée", () => {
     expect(next.dayPlan![1].refId).toBe(next.priorities[0].id);
     expect(next.dayPlan![2].refId).toBeUndefined();
     expect(next.dayPlan![1].why).toContain("entretien");
-
-    const live = applyReconciliation(withHabit(), r, { live: true });
-    expect(live.dayPlan).toBeUndefined();
   });
 
-  it("de nouvelles priorités sans nouveau plan invalident l'ancien dayPlan", () => {
+  it("dayPlan non fourni = conservé, même quand de nouvelles priorités arrivent", () => {
     const state: CapState = {
       ...withHabit(),
       dayPlan: [{ id: "d1", kind: "fixed", title: "vieux créneau" }],
     };
     const kept = applyReconciliation(state, { understanding: "x" });
     expect(kept.dayPlan).toHaveLength(1);
-    const cleared = applyReconciliation(state, {
+    // En modèle continu, de nouvelles priorités sans dayPlan ne l'effacent PLUS.
+    const stillKept = applyReconciliation(state, {
       priorities: [{ title: "nouvelle prio", why: "" }],
     });
-    expect(cleared.dayPlan).toBeUndefined();
+    expect(stillKept.dayPlan).toHaveLength(1);
+  });
+});
+
+describe("rollDay — passage à un nouveau jour", () => {
+  const dayState = (): CapState => ({
+    ...baseState([jobCap()]),
+    habits: [{ id: "h1", title: "Sport" }],
+    priorities: [
+      { id: "p1", title: "8-10 invitations", why: "volume", done: true },
+      { id: "p2", title: "relire CV", why: "" },
+    ],
+    dayPlan: [
+      { id: "d1", kind: "priority", refId: "p1", title: "8-10 invitations" },
+      { id: "d2", kind: "habit", refId: "h1", title: "Sport", done: true },
+    ],
+    prioritiesDate: "2026-07-21T09:00:00.000Z",
+  });
+
+  it("archive la journée écoulée puis remet à zéro", () => {
+    const next = rollDay(dayState(), "2026-07-21");
+    expect(next.priorities).toEqual([]);
+    expect(next.dayPlan).toBeUndefined();
+    expect(next.prioritiesDate).toBeUndefined();
+    expect(next.objectives).toHaveLength(1); // structure préservée
+    expect(next.habits).toHaveLength(1);
+
+    expect(next.history).toHaveLength(1);
+    const log = next.history![0];
+    expect(log.day).toBe("2026-07-21");
+    expect(log.priorities).toEqual([
+      { title: "8-10 invitations", done: true },
+      { title: "relire CV", done: false },
+    ]);
+    // done du dayPlan : la priorité via SA priorité (p1 cochée), l'habitude via l'item
+    expect(log.dayPlan).toEqual([
+      { title: "8-10 invitations", done: true },
+      { title: "Sport", done: true },
+    ]);
+  });
+
+  it("un jour vide n'ajoute pas d'entrée d'historique", () => {
+    const empty: CapState = { ...baseState([]), priorities: [], dayPlan: undefined };
+    const next = rollDay(empty, "2026-07-21");
+    expect(next.history).toBeUndefined();
   });
 });

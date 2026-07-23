@@ -116,10 +116,19 @@ export interface ContextNote {
   text: string;
 }
 
+// La trace d'un jour passé, archivée au passage à un nouveau jour (rollover).
+// Sert au coach pour reprendre à chaud (« hier tu visais X ») et à l'affichage
+// d'un historique léger. `done` reflète ce qui était coché à la clôture du jour.
+export interface DayLog {
+  day: string; // AAAA-MM-JJ (jour local)
+  priorities: { title: string; done: boolean }[];
+  dayPlan?: { title: string; done: boolean }[];
+  note?: string;
+}
+
 // L'état complet, persistant. `understanding` = ce que l'assistant a compris de
-// toi (objectifs, contraintes, décisions passées) — le moat, mis à jour à
-// chaque fin de session. `lastNote` = la phrase élégante « voilà ce qui a
-// changé » montrée sur l'accueil.
+// toi (objectifs, contraintes, décisions passées) — le moat, mis à jour au fil
+// de l'eau. `lastNote` = la phrase élégante « voilà ce qui a changé ».
 export interface CapState {
   objectives: Objective[];
   priorities: Priority[];
@@ -129,7 +138,8 @@ export interface CapState {
   name?: string;
   contextNotes?: ContextNote[]; // mémos libres, pas des caps
   habits?: Habit[]; // les rituels persistants, appris par la conversation
-  dayPlan?: DayItem[]; // la journée ordonnée posée à l'atterrissage
+  dayPlan?: DayItem[]; // la journée ordonnée, tenue en direct
+  history?: DayLog[]; // les jours passés, archivés au rollover (cappé ~14)
 }
 
 export const EMPTY_STATE: CapState = {
