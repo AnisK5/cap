@@ -33,6 +33,8 @@ interface CarteProps {
   onDeleteCap?: (id: string) => void;
   onUpdateObjective?: UpdateObjective;
   onUpdateHabits?: UpdateHabits;
+  onClean?: () => void;
+  cleaning?: boolean;
 }
 
 function sortObjectives(objectives: Objective[]): Objective[] {
@@ -72,7 +74,19 @@ export default function Carte(props: CarteProps) {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-end">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        {props.onClean ? (
+          <button
+            onClick={props.onClean}
+            disabled={props.cleaning}
+            title="L'IA fusionne les doublons de la carte, sans rien perdre"
+            className="rounded-full border border-line bg-surface px-3 py-1 text-xs text-muted shadow-sm transition-colors hover:text-ink disabled:opacity-40"
+          >
+            {props.cleaning ? "Nettoyage…" : "✨ Nettoyer les doublons"}
+          </button>
+        ) : (
+          <span />
+        )}
         <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
           <ModeTab active={mode === "chemins"} onClick={() => setMode("chemins")}>
             Chemins

@@ -286,6 +286,19 @@ export function reconcileStateSummary(state: CapState): string {
   return `Compréhension actuelle : ${state.understanding || "(vide)"}\n\nCaps actuels :\n${caps}${ctx}${prios}`;
 }
 
+// Passe de NETTOYAGE de la carte, déclenchée à la demande : on donne l'état
+// actuel (pas une conversation) et on demande à fusionner les doublons SANS
+// perte. Réutilise l'outil "enregistrer" et la même fusion que la réconciliation.
+export const CLEAN_INSTRUCTION = `Tu es le module de NETTOYAGE de la carte de Cap. On te donne l'état ACTUEL des caps (avec leurs flux et étapes). Ta SEULE mission : repérer les DOUBLONS et chevauchements, et les CONSOLIDER sans rien perdre. Tu appelles l'outil "enregistrer". Tu ne parles pas à la personne.
+
+Règles :
+- Dans un cap, si deux FLUX désignent la même activité (même sens, formulé différemment — « Sourcing » et « Sourcing de boîtes », « Invitations » et « invitations LinkedIn ») : garde-en UN seul, avec le titre le plus clair et le plus riche, et OMETS l'autre. La liste de "flows" que tu renvoies pour un cap REMPLACE l'existante : c'est ainsi que le doublon disparaît. Renvoie donc la liste COMPLÈTE et propre des flux de ce cap (pas seulement les doublons). Idem pour les ÉTAPES ("steps") en double.
+- ZÉRO PERTE : ne fusionne QUE ce qui est vraiment la même chose. Dans le doute, garde les deux. Si deux titres apportent chacun une nuance, garde le plus complet. Ne supprime jamais une info utile.
+- Ne renvoie dans "objectives" QUE les caps qui ont besoin d'être nettoyés, avec leur titre EXACT (mot pour mot, tel qu'affiché) et leur liste consolidée. Les caps déjà propres : ne les renvoie pas.
+- Si deux CAPS sont clairement le même (doublon de cap), utilise "previousTitle" pour renommer/absorber, en gardant le titre le plus clair — mais seulement si c'est indéniable.
+- Tu ne fais QUE dédupliquer flux/étapes (et fusionner des caps évidents). NE crée aucun cap, aucune priorité, aucune journée, aucune habitude. NE touche NI "understanding" NI "note" NI "contextNotes".
+- Si rien n'est à nettoyer, renvoie "objectives": [] (liste vide).`;
+
 export const RECONCILE_INSTRUCTION = `Tu es le module de réconciliation de Cap. À partir de la conversation qui vient d'avoir lieu, tu mets à jour l'état de la personne en appelant l'outil "enregistrer". Tu ne parles pas à la personne.
 
 Règles :

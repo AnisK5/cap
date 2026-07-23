@@ -19,7 +19,7 @@ import type {
 import AuClair, { type DayRow, type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
-import InstallPrompt from "@/components/InstallPrompt";
+import InstallPrompt, { InstallBanner } from "@/components/InstallPrompt";
 
 type View = "clair" | "today" | "carte";
 
@@ -27,8 +27,28 @@ export default function Home() {
   const { state, ready, hasServerState, replace, save } = useCap();
   const [view, setView] = useState<View>("clair");
   const [toast, setToast] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   // Plus d'atterrissage : pas d'animation de « pose » d'un tour à l'autre.
   const justLanded = false;
+
+  // Nettoyage IA de la carte à la demande : fusionne les doublons sans perte.
+  const cleanMap = useCallback(async () => {
+    if (cleaning) return;
+    setCleaning(true);
+    try {
+      const res = await fetch("/api/clean", { method: "POST" });
+      const j = await res.json();
+      if (res.ok && j.state) {
+        replace(j);
+        setToast("Carte nettoyée — dis-moi si quelque chose a sauté");
+        setTimeout(() => setToast(null), 4000);
+      }
+    } catch {
+      // silencieux : on ne casse rien, l'état reste
+    } finally {
+      setCleaning(false);
+    }
+  }, [cleaning, replace]);
 
   const openClair = useCallback(() => setView("clair"), []);
 
@@ -179,6 +199,8 @@ export default function Home() {
     <main className="mx-auto min-h-full max-w-6xl px-6 pb-40 pt-12 sm:px-8 sm:pb-32 sm:pt-24">
       <Header view={view} onView={setView} />
 
+      <InstallBanner />
+
       {!hasServerState && <ImportBanner onImport={save} />}
 
       {view === "today" && (
@@ -324,6 +346,8 @@ export default function Home() {
           onDeleteCap={onDeleteCap}
           onUpdateObjective={onUpdateObjective}
           onUpdateHabits={onUpdateHabits}
+          onClean={cleanMap}
+          cleaning={cleaning}
         />
       )}
 

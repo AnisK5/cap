@@ -85,6 +85,83 @@ export default function InstallPrompt() {
   );
 }
 
+// Un ENCART d'invitation à installer l'app (distinct du petit bouton du header) :
+// s'affiche une fois, refermable, mémorisé. Déclenche la vraie pop-up native
+// quand le navigateur le permet, sinon le guide pas-à-pas.
+const DISMISS_KEY = "cap.install.dismissed";
+
+export function InstallBanner() {
+  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
+  const [show, setShow] = useState(false);
+  const [sheet, setSheet] = useState<Guide | null>(null);
+
+  useEffect(() => {
+    if (isStandalone()) return;
+    if (localStorage.getItem(DISMISS_KEY)) return;
+    setShow(true);
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferred(e as BeforeInstallPromptEvent);
+    };
+    const onInstalled = () => setShow(false);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  if (!show) return null;
+
+  const dismiss = () => {
+    localStorage.setItem(DISMISS_KEY, "1");
+    setShow(false);
+  };
+
+  const install = async () => {
+    if (deferred) {
+      await deferred.prompt();
+      await deferred.userChoice;
+      setDeferred(null);
+      dismiss();
+      return;
+    }
+    const ua = navigator.userAgent;
+    const iOS =
+      /iphone|ipad|ipod/i.test(ua) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const mac = /Macintosh/.test(ua) && navigator.maxTouchPoints <= 1;
+    setSheet(iOS ? "ios" : mac ? "safari-mac" : "desktop");
+  };
+
+  return (
+    <>
+      <div className="animate-rise mx-auto mb-6 flex max-w-2xl items-center gap-3 rounded-2xl border border-cap/30 bg-cap-soft/50 px-4 py-3">
+        <span aria-hidden className="text-xl">⤓</span>
+        <p className="min-w-0 flex-1 text-[0.95rem] leading-snug text-cap-ink">
+          Installe Cap sur cet appareil — un vrai raccourci, en plein écran,
+          toujours à portée.
+        </p>
+        <button
+          onClick={install}
+          className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-medium text-canvas transition-transform hover:scale-[1.02]"
+        >
+          Installer
+        </button>
+        <button
+          onClick={dismiss}
+          title="Plus tard"
+          className="shrink-0 text-xl leading-none text-faint transition-colors hover:text-ink"
+        >
+          ×
+        </button>
+      </div>
+      {sheet && <InstallSheet guide={sheet} onClose={() => setSheet(null)} />}
+    </>
+  );
+}
+
 const GUIDES: Record<Guide, { title: string; steps: string[]; note?: string }> = {
   ios: {
     title: "Installer Cap sur ton iPhone",
