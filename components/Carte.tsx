@@ -101,6 +101,7 @@ export default function Carte(props: CarteProps) {
           {...props}
           objectives={sorted}
           onSeeWeeks={() => setMode("semaines")}
+          colorOf={(id) => capColor(props.objectives, id)}
         />
       ) : (
         <TimelineView
@@ -134,32 +135,42 @@ function ModeTab({
   );
 }
 
-// Progression d'un cap en points : les jalons franchis pleins, le reste vides —
-// lisible d'un coup d'œil, et satisfaisant (l'avancée se VOIT). Au-delà de 6
-// jalons, on retombe sur un compteur pour ne pas noyer la ligne.
-function ProgressDots({ done, total }: { done: number; total: number }) {
+// Progression d'un cap : une barre colorée (couleur du cap) + le compteur.
+// L'avancée se VOIT d'un coup d'œil — plus lisible et plus satisfaisant qu'un texte.
+function ProgressBar({
+  done,
+  total,
+  color,
+}: {
+  done: number;
+  total: number;
+  color: string;
+}) {
   if (total === 0) return null;
-  if (total > 6) {
-    return (
-      <span
-        className="shrink-0 text-xs font-semibold text-cap"
-        title={`${done}/${total} jalons franchis`}
-      >
-        {done}/{total}
-      </span>
-    );
-  }
+  const pct = Math.round((done / total) * 100);
   return (
-    <span
-      className="flex shrink-0 items-center gap-1"
+    <div
+      className="flex items-center gap-2"
       title={`${done}/${total} jalons franchis`}
     >
-      {Array.from({ length: total }, (_, i) => (
-        <span
-          key={i}
-          className={`h-1.5 w-1.5 rounded-full ${i < done ? "bg-cap" : "bg-line"}`}
+      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-line">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${Math.max(pct, done > 0 ? 8 : 0)}%`, background: color }}
         />
-      ))}
+      </div>
+      <span className="text-xs font-semibold" style={{ color }}>
+        {done}/{total}
+      </span>
+    </div>
+  );
+}
+
+// Le nudge « ce cap dort » en pastille colorée plutôt qu'en texte perdu.
+function NudgePill({ momentum }: { momentum: string }) {
+  return (
+    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-gold-soft px-2.5 py-1 text-xs font-medium text-gold">
+      😴 {momentum} — un petit bloc pour le réveiller&nbsp;?
     </span>
   );
 }
@@ -174,7 +185,8 @@ function PathsView({
   onUpdateObjective,
   onUpdateHabits,
   onSeeWeeks,
-}: CarteProps & { onSeeWeeks: () => void }) {
+  colorOf,
+}: CarteProps & { onSeeWeeks: () => void; colorOf: (id: string) => string }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
     setOpenIds((prev) => {
@@ -190,6 +202,7 @@ function PathsView({
         <CapPath
           key={o.id}
           o={o}
+          color={colorOf(o.id)}
           open={openIds.has(o.id)}
           onToggle={() => toggle(o.id)}
           onOpen={onOpen}
@@ -353,6 +366,7 @@ function HabitField({
 //   prochain jalon : la prochaine marque franchissable
 function CapPath({
   o,
+  color,
   open,
   onToggle,
   onOpen,
@@ -361,6 +375,7 @@ function CapPath({
   onSeeWeeks,
 }: {
   o: Objective;
+  color: string;
   open: boolean;
   onToggle: () => void;
   onOpen: () => void;
@@ -384,159 +399,154 @@ function CapPath({
     : undefined;
 
   return (
-    <section className="animate-rise border-t border-line/70 py-5 first:border-t-0 first:pt-1">
-      {/* Le cap et son enjeu. Clic = déplier le détail (éditable). */}
+    <section className="animate-rise mb-3">
       <div
-        className="flex cursor-pointer items-center gap-2.5"
-        onClick={onToggle}
+        className="overflow-hidden rounded-2xl border border-line bg-surface/60 shadow-sm transition-shadow hover:shadow-md"
+        style={{ borderLeft: `4px solid ${color}` }}
       >
-        {o.icon && <span className="text-lg leading-none">{o.icon}</span>}
-        <InlineEdit
-          value={o.title}
-          onChange={up ? (t) => up((p) => ({ ...p, title: t })) : undefined}
-          className="min-w-0 truncate font-display text-xl font-medium text-ink"
-          inputClassName="font-display text-xl font-medium text-ink border-b border-cap/40 w-64"
-        />
-        <span className="ml-auto flex shrink-0 items-center gap-2">
-          {chip ? (
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
-              }`}
-            >
-              {chip.label}
-            </span>
-          ) : o.horizon ? (
-            <span
-              className="max-w-[9rem] truncate rounded-full bg-sink px-2 py-0.5 text-xs text-muted"
-              title={o.horizon}
-            >
-              ⏱ {o.horizon}
-            </span>
-          ) : null}
-          <span className="text-xs text-faint">{open ? "▾" : "▸"}</span>
-        </span>
-      </div>
-
-      {!hasData ? (
-        <p className="mt-2 text-sm italic text-faint">
-          à cartographier —{" "}
-          <button
-            onClick={onOpen}
-            className="underline decoration-dotted hover:text-cap-ink"
+        <div className="p-4">
+          {/* En-tête : l'icône en tuile colorée, le cap, son échéance. Clic = déplier. */}
+          <div
+            className="flex cursor-pointer items-center gap-3"
+            onClick={onToggle}
           >
-            parles-en avec Cap
-          </button>
-        </p>
-      ) : open ? null : (
-        <div className="mt-2.5 flex flex-col gap-1.5 pl-0.5">
-          {/* Le héros : la seule ligne à lire d'un coup d'œil — le prochain pas,
-              précédé des points de progression. La cible (longue) attend le dépli. */}
-          {nextStep ? (
-            <div className="flex items-baseline gap-2.5">
-              {steps.length > 0 && (
-                <ProgressDots
-                  done={steps.filter((s) => s.done).length}
-                  total={steps.length}
-                />
-              )}
-              <p className="text-[0.95rem] font-medium leading-snug text-ink">
-                <span className="text-cap">→ </span>
-                {nextStep.title}
-              </p>
-            </div>
-          ) : steps.length > 0 ? (
-            <div className="flex items-center gap-2.5">
-              <ProgressDots done={steps.length} total={steps.length} />
-              <p className="text-sm font-medium text-cap">
-                Tous les jalons franchis ✓
-              </p>
-            </div>
-          ) : active.length > 0 ? (
-            <p className="text-[0.95rem] font-medium leading-snug text-ink">
-              <span className="text-cap">→ </span>
-              {active.map((f) => f.title).join(" · ")}
-            </p>
-          ) : null}
-
-          {/* Secondaire, discret : le moteur (si un jalon est déjà le héros) et
-              le reste des jalons. */}
-          {(active.length > 0 && nextStep) || remaining > 1 ? (
-            <p className="text-xs text-faint">
-              {active.length > 0 && nextStep && (
-                <>en continu&nbsp;: {active.map((f) => f.title).join(" · ")}</>
-              )}
-              {active.length > 0 && nextStep && remaining > 1 && " · "}
-              {remaining > 1 && (
-                <>
-                  puis {remaining - 1} jalon{remaining > 2 ? "s" : ""}
-                </>
-              )}
-            </p>
-          ) : null}
-
-          {asleep && (
-            <p className="text-sm text-gold">
-              {momentum} — un petit bloc pour le réveiller&nbsp;?
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Déplié : le détail, ÉDITABLE — cocher, réordonner, ajouter,
-          supprimer, changer l'état d'un flux, cible et horizon. */}
-      {open && (
-        <div className="animate-fade mt-4 flex flex-col gap-4 rounded-xl border border-line/70 bg-surface p-4 text-sm">
-          <StepsEditor o={o} up={up} />
-          <FlowsEditor o={o} up={up} />
-
-          <div className="flex flex-col gap-1.5">
-            <EditableMetaLine
-              label="cible"
-              hint="ce qui dira « réussi », en chiffres"
-              value={o.target}
-              onChange={up ? (v) => up((p) => ({ ...p, target: v })) : undefined}
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg leading-none"
+              style={{ background: `color-mix(in srgb, ${color} 15%, transparent)` }}
+            >
+              {o.icon ?? "◆"}
+            </span>
+            <InlineEdit
+              value={o.title}
+              onChange={up ? (t) => up((p) => ({ ...p, title: t })) : undefined}
+              className="min-w-0 truncate font-display text-xl font-medium text-ink"
+              inputClassName="font-display text-xl font-medium text-ink border-b border-cap/40 w-64"
             />
-            <EditableMetaLine
-              label="horizon"
-              hint="l'échéance visée, même souple"
-              value={o.horizon}
-              onChange={up ? (v) => up((p) => ({ ...p, horizon: v })) : undefined}
-            />
-            <EditableMetaLine
-              label="récompense"
-              hint="ce que ce cap débloque"
-              value={o.unlocks}
-              onChange={up ? (v) => up((p) => ({ ...p, unlocks: v })) : undefined}
-            />
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              {chip ? (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
+                  }`}
+                >
+                  {chip.label}
+                </span>
+              ) : o.horizon ? (
+                <span
+                  className="max-w-[9rem] truncate rounded-full bg-sink px-2 py-0.5 text-xs text-muted"
+                  title={o.horizon}
+                >
+                  ⏱ {o.horizon}
+                </span>
+              ) : null}
+              <span className="text-xs text-faint">{open ? "▾" : "▸"}</span>
+            </span>
           </div>
 
-          {asleep && (
-            <p className="text-gold">
-              {momentum} — un petit bloc pour le réveiller&nbsp;?
+          {!hasData ? (
+            <p className="mt-3 pl-12 text-sm italic text-faint">
+              à cartographier —{" "}
+              <button
+                onClick={onOpen}
+                className="underline decoration-dotted hover:text-cap-ink"
+              >
+                parles-en avec Cap
+              </button>
             </p>
-          )}
+          ) : open ? (
+            /* Déplié : le détail ÉDITABLE — cocher, réordonner, ajouter, changer
+               l'état d'un flux, cible/horizon/récompense. */
+            <div className="animate-fade mt-4 flex flex-col gap-4 border-t border-line/60 pt-4 text-sm">
+              <StepsEditor o={o} up={up} />
+              <FlowsEditor o={o} up={up} />
 
-          <p className="flex items-center gap-4 border-t border-line/60 pt-3">
-            {hasTiming && (
-              <button
-                onClick={onSeeWeeks}
-                className="text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
-              >
-                ▸ voir les semaines
-              </button>
-            )}
-            {onDelete && (
-              <button
-                onClick={onDelete}
-                className="ml-auto text-xs text-faint transition-colors hover:text-red-400"
-              >
-                supprimer ce cap
-              </button>
-            )}
-          </p>
+              <div className="flex flex-col gap-1.5">
+                <EditableMetaLine
+                  label="cible"
+                  hint="ce qui dira « réussi », en chiffres"
+                  value={o.target}
+                  onChange={up ? (v) => up((p) => ({ ...p, target: v })) : undefined}
+                />
+                <EditableMetaLine
+                  label="horizon"
+                  hint="l'échéance visée, même souple"
+                  value={o.horizon}
+                  onChange={up ? (v) => up((p) => ({ ...p, horizon: v })) : undefined}
+                />
+                <EditableMetaLine
+                  label="récompense"
+                  hint="ce que ce cap débloque"
+                  value={o.unlocks}
+                  onChange={up ? (v) => up((p) => ({ ...p, unlocks: v })) : undefined}
+                />
+              </div>
+
+              {asleep && momentum && <NudgePill momentum={momentum} />}
+
+              <p className="flex items-center gap-4 border-t border-line/60 pt-3">
+                {hasTiming && (
+                  <button
+                    onClick={onSeeWeeks}
+                    className="text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
+                  >
+                    ▸ voir les semaines
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    onClick={onDelete}
+                    className="ml-auto text-xs text-faint transition-colors hover:text-red-400"
+                  >
+                    supprimer ce cap
+                  </button>
+                )}
+              </p>
+            </div>
+          ) : (
+            /* Replié : la barre de progression + le prochain pas en héros. */
+            <div className="mt-3 flex flex-col gap-2 pl-12">
+              {steps.length > 0 && (
+                <ProgressBar
+                  done={steps.filter((s) => s.done).length}
+                  total={steps.length}
+                  color={color}
+                />
+              )}
+              {nextStep ? (
+                <p className="text-[0.95rem] font-medium leading-snug text-ink">
+                  <span style={{ color }}>→ </span>
+                  {nextStep.title}
+                </p>
+              ) : steps.length > 0 ? (
+                <p className="text-sm font-medium" style={{ color }}>
+                  Tous les jalons franchis ✓
+                </p>
+              ) : active.length > 0 ? (
+                <p className="text-[0.95rem] font-medium leading-snug text-ink">
+                  <span style={{ color }}>→ </span>
+                  {active.map((f) => f.title).join(" · ")}
+                </p>
+              ) : null}
+
+              {(active.length > 0 && nextStep) || remaining > 1 ? (
+                <p className="text-xs text-faint">
+                  {active.length > 0 && nextStep && (
+                    <>en continu&nbsp;: {active.map((f) => f.title).join(" · ")}</>
+                  )}
+                  {active.length > 0 && nextStep && remaining > 1 && " · "}
+                  {remaining > 1 && (
+                    <>
+                      puis {remaining - 1} jalon{remaining > 2 ? "s" : ""}
+                    </>
+                  )}
+                </p>
+              ) : null}
+
+              {asleep && momentum && <NudgePill momentum={momentum} />}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }
