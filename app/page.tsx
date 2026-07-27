@@ -734,6 +734,39 @@ function resolveDay(
   return { prio, objective, icon, color, isCap: !!prio };
 }
 
+// Le moment de journée d'un créneau, déduit de son ancre `dueBy` (texte libre
+// posé par le coach : « avant midi », « 14h », « ce soir »…). Sert à découper la
+// journée en îlots — on n'affronte que le bloc en cours, pas la montagne.
+type Moment = "matin" | "midi" | "aprem" | "soir" | "flottant";
+
+const MOMENTS: { key: Moment; label: string }[] = [
+  { key: "matin", label: "Matin" },
+  { key: "midi", label: "Midi · déjeuner" },
+  { key: "aprem", label: "Après-midi" },
+  { key: "soir", label: "Soir" },
+  { key: "flottant", label: "À caser quand tu peux" },
+];
+
+function momentOf(dueBy?: string): Moment {
+  if (!dueBy) return "flottant";
+  const s = dueBy.toLowerCase();
+  // Mots-clés d'abord — « avant midi » doit tomber en matin, donc testé avant midi.
+  if (/matin|matinée|avant midi/.test(s)) return "matin";
+  if (/déjeuner|midi/.test(s)) return "midi";
+  if (/après-?midi|aprem/.test(s)) return "aprem";
+  if (/soir|soirée|avant de dormir|nuit/.test(s)) return "soir";
+  // Heure explicite : « 14h », « 9h30 », « avant 16h », « vers 19h ».
+  const m = s.match(/\b(\d{1,2})\s*h/);
+  if (m) {
+    const h = parseInt(m[1], 10);
+    if (h < 12) return "matin";
+    if (h < 14) return "midi";
+    if (h < 18) return "aprem";
+    return "soir";
+  }
+  return "flottant";
+}
+
 // La deadline du jour : une ancre douce (« avant midi »), pas un compte à rebours.
 function DueChip({ label, color }: { label: string; color?: string }) {
   return (
@@ -840,50 +873,77 @@ function DayTimeline({
   objectives: Objective[];
   onToggle: (item: DayItem) => void;
 }) {
+  // On regroupe la suite de la journée par MOMENT (matin · déjeuner · aprem ·
+  // soir), pour chunker le mur en îlots time-ancrés. L'ordre du coach est
+  // conservé À L'INTÉRIEUR d'un moment.
+  const byMoment = new Map<Moment, DayItem[]>();
+  for (const d of items) {
+    const key = momentOf(d.dueBy);
+    (byMoment.get(key) ?? byMoment.set(key, []).get(key)!).push(d);
+  }
+  const groups = MOMENTS.filter((m) => byMoment.get(m.key)?.length);
+
   return (
-    <div className="mt-10">
-      <p className="text-xs uppercase tracking-[0.18em] text-faint">
-        La suite de ta journée
-      </p>
-      <ol className="mt-3 flex flex-col gap-2">
-        {items.map((d) => {
-          const { icon, color } = resolveDay(
-            d,
-            priorities,
-            habits,
-            objById,
-            objectives,
-          );
-          return (
-            <li
-              key={d.id}
-              className="flex items-start gap-3 rounded-xl border border-line/70 bg-surface/60 px-4 py-3"
-            >
-              <span
-                className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ background: color }}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="min-w-0 flex-1 leading-snug text-ink">
-                    {icon && <span className="mr-1">{icon}</span>}
+    <div className="mt-10 flex flex-col gap-6">
+      {groups.map((m) => (
+        <div key={m.key}>
+          {/* Séparateur de moment : discret, il fait office de coupure (le
+              « Midi · déjeuner » scinde naturellement matin et après-midi). */}
+          <p className="border-t border-line/60 pt-3 text-xs uppercase tracking-[0.18em] text-faint">
+            {m.label}
+          </p>
+          <ol className="mt-3 flex flex-col gap-2">
+            {byMoment.get(m.key)!.map((d) => {
+              const { icon, color, isCap } = resolveDay(
+                d,
+                priorities,
+                habits,
+                objById,
+                objectives,
+              );
+              return isCap ? (
+                // Projet : proéminent — c'est ce qui fait avancer un cap.
+                <li
+                  key={d.id}
+                  className="flex items-start gap-3 rounded-xl border border-line/70 bg-surface/60 px-4 py-3"
+                >
+                  <span
+                    className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: color }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="min-w-0 flex-1 leading-snug text-ink">
+                        {icon && <span className="mr-1">{icon}</span>}
+                        {d.title}
+                      </p>
+                      {d.dueBy && <DueChip label={d.dueBy} color={color} />}
+                    </div>
+                    {d.why && (
+                      <p className="mt-1 text-sm leading-snug text-faint">{d.why}</p>
+                    )}
+                  </div>
+                  <CheckCircle done={false} color={color} onToggle={() => onToggle(d)} />
+                </li>
+              ) : (
+                // Rituel / random : TRÈS discret — inline léger, sans carte, il
+                // s'efface en fond pour que les projets dominent l'œil.
+                <li key={d.id} className="flex items-center gap-2.5 px-1.5 py-1">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
+                  <p className="min-w-0 flex-1 truncate text-sm text-muted">
+                    {icon && <span className="mr-1 opacity-70">{icon}</span>}
                     {d.title}
+                    {d.dueBy && (
+                      <span className="ml-2 text-xs text-faint">· {d.dueBy}</span>
+                    )}
                   </p>
-                  {d.dueBy && <DueChip label={d.dueBy} />}
-                </div>
-                {d.why && (
-                  <p className="mt-1 text-sm leading-snug text-faint">{d.why}</p>
-                )}
-              </div>
-              <CheckCircle
-                done={false}
-                color={color}
-                onToggle={() => onToggle(d)}
-              />
-            </li>
-          );
-        })}
-      </ol>
+                  <CheckCircle done={false} color={NEUTRAL} onToggle={() => onToggle(d)} />
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      ))}
     </div>
   );
 }
