@@ -189,6 +189,75 @@ function Stepper({ steps, color }: { steps: Step[]; color: string }) {
   );
 }
 
+// LE point focal de la carte : la prochaine action, en callout coloré avec une
+// pastille-flèche. C'est la seule chose qui doit crier — l'œil tombe dessus et
+// sait quoi faire, sans lire le reste. (Répond à « c'est quoi ma prio ? ».)
+function PriorityCallout({
+  label,
+  title,
+  icon,
+  color,
+  done,
+}: {
+  label: string;
+  title: string;
+  icon: string;
+  color: string;
+  done?: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+      style={{ background: `color-mix(in srgb, ${color} 12%, transparent)` }}
+    >
+      <span
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base font-semibold text-canvas"
+        style={{ background: color }}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span
+          className="block text-[0.62rem] font-semibold uppercase tracking-[0.12em]"
+          style={{ color }}
+        >
+          {label}
+        </span>
+        <span
+          className={`block text-base font-semibold leading-snug ${done ? "" : "text-ink"}`}
+          style={done ? { color } : undefined}
+        >
+          {title}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+// Le moteur en pastille compacte (contexte, pas focal) : un point qui pulse +
+// les flux actifs. Se pose À CÔTÉ de la progression, pas en dessous.
+function MoteurChip({ flows, color }: { flows: Flow[]; color: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+      style={{ borderColor: `color-mix(in srgb, ${color} 30%, var(--color-line))` }}
+      title="le moteur qui tourne"
+    >
+      <span className="relative flex h-2 w-2 items-center justify-center">
+        <span
+          className="absolute inline-flex h-2 w-2 rounded-full opacity-50 motion-safe:animate-ping"
+          style={{ background: color }}
+        />
+        <span className="relative h-2 w-2 rounded-full" style={{ background: color }} />
+      </span>
+      <span className="font-semibold" style={{ color }}>
+        Moteur
+      </span>
+      <span className="text-muted">{flows.map((f) => f.title).join(" · ")}</span>
+    </span>
+  );
+}
+
 // Le nudge « ce cap dort » en pastille colorée plutôt qu'en texte perdu.
 function NudgePill({ momentum }: { momentum: string }) {
   return (
@@ -483,6 +552,21 @@ function CapPath({
             /* Déplié : le détail ÉDITABLE — cocher, réordonner, ajouter, changer
                l'état d'un flux, cible/horizon/récompense. */
             <div className="animate-fade mt-4 flex flex-col gap-4 border-t border-line/60 pt-4 text-sm">
+              {nextStep ? (
+                <PriorityCallout
+                  label="Prochaine étape"
+                  title={nextStep.title}
+                  icon="→"
+                  color={color}
+                />
+              ) : active.length > 0 ? (
+                <PriorityCallout
+                  label="Le moteur tourne"
+                  title={active.map((f) => f.title).join(" · ")}
+                  icon="⚙"
+                  color={color}
+                />
+              ) : null}
               <StepsEditor o={o} up={up} color={color} />
               <FlowsEditor o={o} up={up} color={color} />
 
@@ -529,50 +613,45 @@ function CapPath({
               </p>
             </div>
           ) : (
-            /* Replié : le chemin (stepper) + le prochain pas en héros. */
+            /* Replié : UN point focal (la prochaine action), puis le contexte
+               démoté — progression + moteur côte à côte, pas empilés. */
             <div className="mt-3 flex flex-col gap-2.5 pl-12">
-              {steps.length > 0 && <Stepper steps={steps} color={color} />}
               {nextStep ? (
-                <p className="text-lg font-semibold leading-snug text-ink">
-                  <span style={{ color }}>→ </span>
-                  {nextStep.title}
-                </p>
+                <PriorityCallout
+                  label="Prochaine étape"
+                  title={nextStep.title}
+                  icon="→"
+                  color={color}
+                />
               ) : steps.length > 0 ? (
-                <p className="text-base font-semibold" style={{ color }}>
-                  Tous les jalons franchis ✓
-                </p>
+                <PriorityCallout
+                  label="Cap tenu"
+                  title="Tous les jalons franchis"
+                  icon="✓"
+                  color={color}
+                  done
+                />
               ) : active.length > 0 ? (
-                <p className="text-lg font-semibold leading-snug text-ink">
-                  <span style={{ color }}>→ </span>
-                  {active.map((f) => f.title).join(" · ")}
-                </p>
+                <PriorityCallout
+                  label="Le moteur tourne"
+                  title={active.map((f) => f.title).join(" · ")}
+                  icon="⚙"
+                  color={color}
+                />
               ) : null}
 
-              {/* Le moteur (flux actifs) en ligne VIVANTE, pas en gris perdu :
-                  souvent c'est lui le vrai sujet (candidater, prospecter…). */}
-              {active.length > 0 && nextStep && (
-                <p className="flex items-center gap-2 text-sm">
-                  <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
-                    <span
-                      className="absolute inline-flex h-2 w-2 rounded-full opacity-50 motion-safe:animate-ping"
-                      style={{ background: color }}
-                    />
-                    <span
-                      className="relative h-2 w-2 rounded-full"
-                      style={{ background: color }}
-                    />
-                  </span>
-                  <span className="text-muted">
-                    <span className="font-semibold" style={{ color }}>
-                      Moteur
-                    </span>{" "}
-                    · {active.map((f) => f.title).join(" · ")}
-                  </span>
-                </p>
+              {/* Contexte, sur UNE ligne horizontale : progression + moteur. */}
+              {(steps.length > 0 || (active.length > 0 && nextStep)) && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {steps.length > 0 && <Stepper steps={steps} color={color} />}
+                  {active.length > 0 && nextStep && (
+                    <MoteurChip flows={active} color={color} />
+                  )}
+                </div>
               )}
-              {remaining > 1 && (
-                <p className="pl-4 text-xs text-faint">
-                  puis {remaining - 1} jalon{remaining > 2 ? "s" : ""}
+              {remaining > 1 && nextStep && (
+                <p className="text-xs text-faint">
+                  puis {remaining - 1} jalon{remaining > 2 ? "s" : ""} sur le chemin
                 </p>
               )}
 
