@@ -378,11 +378,11 @@ export default function Home() {
           {(state.contextNotes?.length ||
             state.history?.length ||
             state.understanding?.trim()) && (
-            <div className="mx-auto mt-4 max-w-2xl border-t border-line/70 pt-2">
-              {state.contextNotes && state.contextNotes.length > 0 && (
-                <ContextSection
-                  notes={state.contextNotes}
-                  onDelete={onDeleteNote}
+            <div className="mx-auto mt-6 max-w-2xl space-y-3">
+              {state.history && state.history.length > 0 && (
+                <HistorySection
+                  history={state.history}
+                  onToggle={onToggleHistory}
                 />
               )}
               {state.understanding?.trim() && (
@@ -391,10 +391,10 @@ export default function Home() {
                   onSave={(t) => save({ ...state, understanding: t })}
                 />
               )}
-              {state.history && state.history.length > 0 && (
-                <HistorySection
-                  history={state.history}
-                  onToggle={onToggleHistory}
+              {state.contextNotes && state.contextNotes.length > 0 && (
+                <ContextSection
+                  notes={state.contextNotes}
+                  onDelete={onDeleteNote}
                 />
               )}
             </div>
@@ -966,23 +966,36 @@ function ContextSection({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-12">
+    <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-surface/60 shadow-sm">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-faint transition-colors hover:text-muted"
+        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-canvas/30"
       >
-        <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
-        Contexte en mémoire ({notes.length})
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold-soft text-lg">
+          📌
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs uppercase tracking-[0.15em] text-faint">
+            Contexte en mémoire
+          </span>
+          <span className="mt-0.5 block text-sm text-muted">
+            {notes.length} note{notes.length > 1 ? "s" : ""}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs text-faint">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <ul className="mt-3 space-y-2">
+        <ul className="space-y-1.5 border-t border-line/60 p-4">
           {notes.map((n) => (
-            <li key={n.id} className="flex items-start gap-2 text-sm">
-              <span className="mt-0.5 text-faint">·</span>
+            <li
+              key={n.id}
+              className="group/note flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-canvas/40"
+            >
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
               <span className="flex-1 text-muted">{n.text}</span>
               <button
                 onClick={() => onDelete(n.id)}
-                className="shrink-0 text-faint transition-colors hover:text-red-400"
+                className="shrink-0 text-faint transition-colors hover:text-red-400 sm:opacity-0 sm:group-hover/note:opacity-100"
                 title="Supprimer"
               >
                 ×
@@ -991,7 +1004,7 @@ function ContextSection({
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -1005,89 +1018,159 @@ function HistorySection({
   history: DayLog[];
   onToggle: (day: string, index: number) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Le jour ouvert pour cocher rétroactivement (par défaut : le plus récent, le
+  // plus utile). null = replié.
+  const days = history.map((log) => {
+    const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
+    const done = items.filter((i) => i.done).length;
+    return {
+      day: log.day,
+      items,
+      done,
+      total: items.length,
+      ratio: items.length ? done / items.length : 0,
+    };
+  });
+  const [selected, setSelected] = useState<string | null>(
+    days.length ? days[days.length - 1].day : null,
+  );
+
   const fmt = (day: string) => {
     const d = new Date(`${day}T00:00:00`);
     return Number.isNaN(d.getTime())
       ? day
       : new Intl.DateTimeFormat("fr-FR", {
-          weekday: "short",
+          weekday: "long",
           day: "numeric",
           month: "short",
         }).format(d);
   };
-  // Total des victoires : le cadrage positif (« ce que tu as fait », pas le manque).
-  const totalDone = history.reduce((n, log) => {
-    const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
-    return n + items.filter((i) => i.done).length;
-  }, 0);
+  const dow = (day: string) => {
+    const d = new Date(`${day}T00:00:00`);
+    return Number.isNaN(d.getTime())
+      ? "·"
+      : new Intl.DateTimeFormat("fr-FR", { weekday: "narrow" }).format(d);
+  };
+
+  // Cadrage VICTOIRES : « ce que tu as fait », jamais le manque.
+  const totalDone = days.reduce((n, d) => n + d.done, 0);
+  // Série : jours consécutifs les plus récents avec au moins une victoire.
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    if (days[i].done > 0) streak++;
+    else break;
+  }
+  const sel = selected ? days.find((d) => d.day === selected) : null;
+
   return (
-    <div className="mt-8">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-faint transition-colors hover:text-muted"
-      >
-        <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
-        Jours passés ({history.length})
-        {totalDone > 0 && (
-          <span className="ml-1 normal-case tracking-normal text-cap">
-            · {totalDone} ✓
+    <section className="animate-rise rounded-2xl border border-line bg-surface/60 p-4 shadow-sm sm:p-5">
+      {/* En-tête : le compteur de victoires en gros (dopamine), la série en pastille. */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.15em] text-faint">
+            Ce que tu as fait
+          </p>
+          <p className="mt-1 flex items-baseline gap-2">
+            <span className="font-display text-3xl font-semibold leading-none text-cap">
+              {totalDone}
+            </span>
+            <span className="text-sm text-muted">
+              victoire{totalDone > 1 ? "s" : ""} sur {days.length} jour
+              {days.length > 1 ? "s" : ""}
+            </span>
+          </p>
+        </div>
+        {streak >= 2 && (
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-full bg-gold-soft px-3 py-1.5 text-sm font-semibold text-gold"
+            title="jours d'affilée avec au moins une victoire"
+          >
+            🔥 {streak} j
           </span>
         )}
-      </button>
-      {open && (
-        <ul className="mt-3 space-y-4">
-          {[...history].reverse().map((log) => {
-            const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
-            const done = items.filter((i) => i.done).length;
-            return (
-              <li key={log.day}>
-                <p className="text-sm font-medium text-muted">
-                  {fmt(log.day)}
+      </div>
+
+      {/* Le mur des jours : une colonne par jour, plus c'est plein, plus ça brille.
+          On VOIT l'élan sur la semaine ; clique un jour pour cocher après coup. */}
+      <div className="mt-4 flex items-end gap-1.5">
+        {days.map((d) => {
+          const active = d.day === selected;
+          const intensity = d.done > 0 ? 22 + Math.round(d.ratio * 68) : 0;
+          const strong = d.ratio >= 0.45;
+          return (
+            <button
+              key={d.day}
+              onClick={() => setSelected(active ? null : d.day)}
+              title={`${fmt(d.day)} — ${d.done}/${d.total}`}
+              className="group flex flex-1 flex-col items-center gap-1"
+            >
+              <span
+                className="flex h-11 w-full items-center justify-center rounded-lg text-sm font-semibold transition-transform group-hover:-translate-y-0.5"
+                style={{
+                  background:
+                    d.done > 0
+                      ? `color-mix(in srgb, var(--color-cap) ${intensity}%, var(--color-surface))`
+                      : "var(--color-sink)",
+                  color: strong ? "var(--color-canvas)" : "var(--color-cap)",
+                  outline: active ? "2px solid var(--color-cap)" : "none",
+                  outlineOffset: 2,
+                }}
+              >
+                {d.done > 0 ? d.done : ""}
+              </span>
+              <span
+                className={`text-[0.6rem] uppercase ${active ? "font-semibold text-cap" : "text-faint"}`}
+              >
+                {dow(d.day)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Détail du jour sélectionné : cochable rétroactivement (t'as fait ton
+          sport mais oublié la case → tu corriges, ton track record reste juste). */}
+      {sel && (
+        <div className="animate-fade mt-4 border-t border-line/60 pt-3">
+          <p className="text-sm font-medium capitalize text-muted">
+            {fmt(sel.day)}
+            <span
+              className={`ml-2 font-normal ${sel.done > 0 ? "text-cap" : "text-faint"}`}
+            >
+              {sel.done}/{sel.total} fait
+            </span>
+          </p>
+          <ul className="mt-2 space-y-1">
+            {sel.items.map((it, i) => (
+              <li key={i}>
+                <button
+                  onClick={() => onToggle(sel.day, i)}
+                  title={it.done ? "marquer non fait" : "marquer fait"}
+                  className="group/h flex w-full items-baseline gap-2 text-left text-sm leading-snug"
+                >
                   <span
-                    className={`ml-2 font-normal ${done > 0 ? "text-cap" : "text-faint"}`}
+                    className={
+                      it.done ? "text-cap" : "text-faint group-hover/h:text-cap"
+                    }
                   >
-                    {done}/{items.length} fait
+                    {it.done ? "✓" : "○"}
                   </span>
-                </p>
-                <ul className="mt-1.5 space-y-1">
-                  {items.map((it, i) => (
-                    <li key={i}>
-                      {/* Cochable : t'as fait ton sport mais oublié la case →
-                          tu corriges, ton track record reste juste. */}
-                      <button
-                        onClick={() => onToggle(log.day, i)}
-                        title={it.done ? "marquer non fait" : "marquer fait"}
-                        className="group/h flex w-full items-baseline gap-2 text-left text-sm leading-snug"
-                      >
-                        <span
-                          className={
-                            it.done
-                              ? "text-cap"
-                              : "text-faint group-hover/h:text-cap"
-                          }
-                        >
-                          {it.done ? "✓" : "○"}
-                        </span>
-                        <span
-                          className={
-                            it.done
-                              ? "text-muted"
-                              : "text-faint group-hover/h:text-muted"
-                          }
-                        >
-                          {it.title}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                  <span
+                    className={
+                      it.done
+                        ? "text-muted"
+                        : "text-faint group-hover/h:text-muted"
+                    }
+                  >
+                    {it.title}
+                  </span>
+                </button>
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -1106,62 +1189,75 @@ function UnderstandingSection({
   const [draft, setDraft] = useState(text);
 
   return (
-    <div className="mt-8">
+    <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-surface/60 shadow-sm">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs uppercase tracking-[0.15em] text-faint transition-colors hover:text-muted"
+        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-canvas/30"
       >
-        <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
-        Ce que Cap sait de toi
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-cap-soft text-lg">
+          🧠
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs uppercase tracking-[0.15em] text-faint">
+            Ce que Cap sait de toi
+          </span>
+          {!open && (
+            <span className="mt-0.5 block truncate text-sm text-muted">{text}</span>
+          )}
+        </span>
+        <span className="shrink-0 text-xs text-faint">{open ? "▾" : "▸"}</span>
       </button>
-      {open &&
-        (editing ? (
-          <div className="mt-3">
-            <textarea
-              value={draft}
-              autoFocus
-              onChange={(e) => setDraft(e.target.value)}
-              rows={7}
-              className="w-full resize-y rounded-xl border border-line bg-surface p-3 text-sm leading-relaxed text-ink focus:outline-none focus:ring-1 focus:ring-cap/40"
-            />
-            <div className="mt-2 flex gap-2">
-              <button
-                onClick={() => {
-                  onSave(draft.trim());
-                  setEditing(false);
-                }}
-                className="rounded-full bg-ink px-4 py-1.5 text-xs font-medium text-canvas"
-              >
-                Enregistrer
-              </button>
+      {open && (
+        <div className="border-t border-line/60 p-4">
+          {editing ? (
+            <>
+              <textarea
+                value={draft}
+                autoFocus
+                onChange={(e) => setDraft(e.target.value)}
+                rows={7}
+                className="w-full resize-y rounded-xl border border-line bg-canvas/40 p-3 text-sm leading-relaxed text-ink focus:outline-none focus:ring-1 focus:ring-cap/40"
+              />
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => {
+                    onSave(draft.trim());
+                    setEditing(false);
+                  }}
+                  className="rounded-full bg-ink px-4 py-1.5 text-xs font-medium text-canvas"
+                >
+                  Enregistrer
+                </button>
+                <button
+                  onClick={() => {
+                    setDraft(text);
+                    setEditing(false);
+                  }}
+                  className="rounded-full px-3 py-1.5 text-xs text-faint hover:text-ink"
+                >
+                  Annuler
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">
+                {text}
+              </p>
               <button
                 onClick={() => {
                   setDraft(text);
-                  setEditing(false);
+                  setEditing(true);
                 }}
-                className="rounded-full px-3 py-1.5 text-xs text-faint hover:text-ink"
+                className="mt-2.5 text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
               >
-                Annuler
+                Modifier ce que Cap retient
               </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-3">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">
-              {text}
-            </p>
-            <button
-              onClick={() => {
-                setDraft(text);
-                setEditing(true);
-              }}
-              className="mt-2 text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
-            >
-              Modifier ce que Cap retient
-            </button>
-          </div>
-        ))}
-    </div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

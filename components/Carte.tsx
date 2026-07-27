@@ -604,14 +604,18 @@ function StepsEditor({
       {steps.length === 0 && (
         <p className="text-faint">aucun jalon posé pour l&apos;instant</p>
       )}
-      <ol className="flex flex-col gap-1">
+      {/* Le chemin, à la verticale : une épine relie les jalons, node par node.
+          Franchi = plein, courant = anneau qui respire, à venir = creux. La
+          récompense (★) est la destination, au bout du fil. */}
+      <ol className="flex flex-col">
         {steps.map((s, i) => {
           const isCurrent = s.id === currentId;
+          const hasBelow = i < steps.length - 1 || !!o.unlocks;
           return (
             <li
               key={s.id}
-              className={`group/step flex items-center gap-2 rounded-lg ${
-                isCurrent ? "-mx-1.5 px-1.5 py-1" : ""
+              className={`group/step flex items-stretch gap-2 rounded-lg ${
+                isCurrent ? "-mx-1.5 px-1.5" : ""
               }`}
               style={
                 isCurrent
@@ -619,60 +623,96 @@ function StepsEditor({
                   : undefined
               }
             >
-              <button
-                onClick={() =>
-                  patchSteps((st) =>
-                    st.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)),
-                  )
-                }
-                title={s.done ? "marquer non fait" : "marquer fait"}
-                className={`w-5 text-left ${isCurrent ? "font-semibold" : ""}`}
-                style={
-                  s.done || isCurrent
-                    ? { color }
-                    : undefined
-                }
-              >
-                <span className={s.done || isCurrent ? "" : "text-faint"}>
-                  {s.done ? "✓" : isCurrent ? "◉" : "○"}
-                </span>
-              </button>
-              <InlineEdit
-                value={s.title}
-                onChange={(t) =>
-                  patchSteps((st) =>
-                    st.map((x) => (x.id === s.id ? { ...x, title: t } : x)),
-                  )
-                }
-                className={
-                  s.done
-                    ? "text-faint line-through"
-                    : isCurrent
-                      ? "font-medium text-ink"
-                      : "text-muted"
-                }
-                inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
-              />
-              {up && (
-                <span className="ml-auto flex shrink-0 items-center gap-1 text-faint sm:opacity-0 sm:transition-opacity sm:group-hover/step:opacity-100">
-                  <button onClick={() => move(i, -1)} title="monter" className="px-0.5 hover:text-ink">↑</button>
-                  <button onClick={() => move(i, 1)} title="descendre" className="px-0.5 hover:text-ink">↓</button>
-                  <button
-                    onClick={() => patchSteps((st) => st.filter((x) => x.id !== s.id))}
-                    title="supprimer ce jalon"
-                    className="px-0.5 hover:text-red-400"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
+              {/* épine + node */}
+              <div className="relative flex w-4 shrink-0 items-center justify-center">
+                {i > 0 && (
+                  <span
+                    className="absolute left-1/2 top-0 h-1/2 w-px -translate-x-1/2"
+                    style={{ background: steps[i - 1].done ? color : "var(--color-line)" }}
+                  />
+                )}
+                {hasBelow && (
+                  <span
+                    className="absolute bottom-0 left-1/2 h-1/2 w-px -translate-x-1/2"
+                    style={{ background: s.done ? color : "var(--color-line)" }}
+                  />
+                )}
+                <button
+                  onClick={() =>
+                    patchSteps((st) =>
+                      st.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)),
+                    )
+                  }
+                  title={s.done ? "marquer non fait" : "marquer fait"}
+                  className="relative z-10 flex h-4 w-4 items-center justify-center"
+                >
+                  {s.done ? (
+                    <span className="h-3.5 w-3.5 rounded-full" style={{ background: color }} />
+                  ) : isCurrent ? (
+                    <>
+                      <span
+                        className="absolute inline-flex h-4 w-4 rounded-full opacity-40 motion-safe:animate-ping"
+                        style={{ background: color }}
+                      />
+                      <span
+                        className="relative h-3.5 w-3.5 rounded-full border-2 bg-surface"
+                        style={{ borderColor: color }}
+                      />
+                    </>
+                  ) : (
+                    <span className="h-3 w-3 rounded-full border border-line bg-surface" />
+                  )}
+                </button>
+              </div>
+              <div className="flex flex-1 items-center gap-2 py-1.5">
+                <InlineEdit
+                  value={s.title}
+                  onChange={(t) =>
+                    patchSteps((st) =>
+                      st.map((x) => (x.id === s.id ? { ...x, title: t } : x)),
+                    )
+                  }
+                  className={
+                    s.done
+                      ? "text-faint line-through"
+                      : isCurrent
+                        ? "font-medium text-ink"
+                        : "text-muted"
+                  }
+                  inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
+                />
+                {up && (
+                  <span className="ml-auto flex shrink-0 items-center gap-1 text-faint sm:opacity-0 sm:transition-opacity sm:group-hover/step:opacity-100">
+                    <button onClick={() => move(i, -1)} title="monter" className="px-0.5 hover:text-ink">↑</button>
+                    <button onClick={() => move(i, 1)} title="descendre" className="px-0.5 hover:text-ink">↓</button>
+                    <button
+                      onClick={() => patchSteps((st) => st.filter((x) => x.id !== s.id))}
+                      title="supprimer ce jalon"
+                      className="px-0.5 hover:text-red-400"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+              </div>
             </li>
           );
         })}
         {o.unlocks && (
-          <li className="flex items-baseline gap-2 text-gold">
-            <span className="w-5">★</span>
-            <span>{o.unlocks}</span>
+          <li className="flex items-stretch gap-2">
+            <div className="relative flex w-4 shrink-0 items-center justify-center">
+              <span
+                className="absolute left-1/2 top-0 h-1/2 w-px -translate-x-1/2"
+                style={{
+                  background:
+                    steps.length > 0 && steps.every((s) => s.done)
+                      ? "var(--color-gold)"
+                      : "var(--color-line)",
+                }}
+              />
+              <span className="relative z-10 text-sm text-gold">★</span>
+            </div>
+            <span className="flex flex-1 items-center py-1.5 text-gold">{o.unlocks}</span>
           </li>
         )}
       </ol>
