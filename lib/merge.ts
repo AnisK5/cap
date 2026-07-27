@@ -489,18 +489,25 @@ export function rollDay(state: CapState, dayIso: string): CapState {
     : state.history;
 
   // Agrégat DURABLE par semaine (le Parcours) : on ajoute les victoires du jour
-  // clôturé au seau de sa semaine (lundi). Ça survit au-delà des 14 jours.
-  const dayWins =
-    (log.dayPlan?.length ? log.dayPlan : log.priorities).filter((i) => i.done)
-      .length;
+  // clôturé — leur COMPTE et leurs INTITULÉS — au seau de sa semaine (lundi).
+  // Le concret survit ainsi au-delà des 14 jours d'historique détaillé.
+  const doneList = (log.dayPlan?.length ? log.dayPlan : log.priorities).filter(
+    (i) => i.done,
+  );
+  const dayWins = doneList.length;
+  const dayTitles = doneList.map((i) => i.title);
   let weeklyLog = state.weeklyLog;
   if (hadContent && dayWins > 0) {
     const wk = mondayIso(dayIso);
     const prev = state.weeklyLog ?? [];
     const found = prev.find((w) => w.week === wk);
     weeklyLog = found
-      ? prev.map((w) => (w.week === wk ? { ...w, wins: w.wins + dayWins } : w))
-      : [...prev, { week: wk, wins: dayWins }].sort((a, b) =>
+      ? prev.map((w) =>
+          w.week === wk
+            ? { ...w, wins: w.wins + dayWins, items: [...(w.items ?? []), ...dayTitles] }
+            : w,
+        )
+      : [...prev, { week: wk, wins: dayWins, items: dayTitles }].sort((a, b) =>
           a.week < b.week ? -1 : a.week > b.week ? 1 : 0,
         );
   }

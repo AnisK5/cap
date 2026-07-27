@@ -452,17 +452,27 @@ describe("rollDay — passage à un nouveau jour", () => {
   });
 
   it("agrège les victoires du jour dans le weeklyLog durable (par lundi)", () => {
-    // 2026-07-21 = mardi → lundi 2026-07-20. 2 victoires (p1 + Sport).
+    // 2026-07-21 = mardi → lundi 2026-07-20. 2 victoires (p1 + Sport), avec intitulés.
     const day1 = rollDay(dayState(), "2026-07-21");
-    expect(day1.weeklyLog).toEqual([{ week: "2026-07-20", wins: 2 }]);
-    // Un autre jour de la MÊME semaine s'ajoute au même seau.
+    expect(day1.weeklyLog).toEqual([
+      { week: "2026-07-20", wins: 2, items: ["8-10 invitations", "Sport"] },
+    ]);
+    // Un autre jour de la MÊME semaine s'ajoute au même seau (compte + intitulés).
     const day2 = rollDay({ ...dayState(), weeklyLog: day1.weeklyLog }, "2026-07-22");
-    expect(day2.weeklyLog).toEqual([{ week: "2026-07-20", wins: 4 }]);
+    expect(day2.weeklyLog).toEqual([
+      {
+        week: "2026-07-20",
+        wins: 4,
+        items: ["8-10 invitations", "Sport", "8-10 invitations", "Sport"],
+      },
+    ]);
     // Un jour de la semaine suivante ouvre un nouveau seau (survit au-delà de 14 j).
     const day3 = rollDay({ ...dayState(), weeklyLog: day2.weeklyLog }, "2026-07-28");
-    expect(day3.weeklyLog).toEqual([
-      { week: "2026-07-20", wins: 4 },
-      { week: "2026-07-27", wins: 2 },
-    ]);
+    expect(day3.weeklyLog).toHaveLength(2);
+    expect(day3.weeklyLog![1]).toEqual({
+      week: "2026-07-27",
+      wins: 2,
+      items: ["8-10 invitations", "Sport"],
+    });
   });
 });

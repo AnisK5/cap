@@ -133,6 +133,7 @@ export interface DayLog {
 export interface WeekWins {
   week: string; // AAAA-MM-JJ du lundi de la semaine (local)
   wins: number; // créneaux cochés cette semaine-là
+  items?: string[]; // les INTITULÉS de ce qui a été fait (le concret, durable)
 }
 
 // L'état complet, persistant. `understanding` = ce que l'assistant a compris de
