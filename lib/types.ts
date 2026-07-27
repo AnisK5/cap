@@ -30,6 +30,7 @@ export interface Step extends Timed {
   id: string;
   title: string;
   done?: boolean;
+  doneAt?: string; // ISO du franchissement — alimente le récit « Parcours » (jalons datés)
 }
 
 // ② Un flux : une activité continue qui produit un débit (sourcing, outreach…).

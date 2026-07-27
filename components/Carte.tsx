@@ -767,14 +767,29 @@ function StepsEditor({
                 <button
                   onClick={() =>
                     patchSteps((st) =>
-                      st.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)),
+                      st.map((x) =>
+                        x.id === s.id
+                          ? {
+                              ...x,
+                              done: !x.done,
+                              // On DATE le franchissement (récit Parcours), on
+                              // efface la date si on décoche.
+                              doneAt: !x.done ? new Date().toISOString() : undefined,
+                            }
+                          : x,
+                      ),
                     )
                   }
                   title={s.done ? "marquer non fait" : "marquer fait"}
                   className="relative z-10 flex h-4 w-4 items-center justify-center"
                 >
                   {s.done ? (
-                    <span className="h-3.5 w-3.5 rounded-full" style={{ background: color }} />
+                    <span
+                      className="flex h-4 w-4 items-center justify-center rounded-full text-[0.6rem] font-bold text-canvas"
+                      style={{ background: color }}
+                    >
+                      ✓
+                    </span>
                   ) : isCurrent ? (
                     <>
                       <span
@@ -801,7 +816,7 @@ function StepsEditor({
                   }
                   className={
                     s.done
-                      ? "text-faint line-through"
+                      ? "text-muted"
                       : isCurrent
                         ? "font-medium text-ink"
                         : "text-muted"
