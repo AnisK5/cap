@@ -386,6 +386,52 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
   };
 }
 
+// Dédup déterministe des rituels (par titre normalisé), champs préservés.
+export function dedupeHabits(
+  habits: Habit[] | undefined,
+): { habits: Habit[]; removed: number } {
+  const list = habits ?? [];
+  let removed = 0;
+  const map = new Map<string, Habit>();
+  for (const h of list) {
+    const k = normKey(h.title);
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, h);
+      continue;
+    }
+    removed++;
+    map.set(k, {
+      ...prev,
+      icon: prev.icon ?? h.icon,
+      cadence: prev.cadence ?? h.cadence,
+      why: prev.why ?? h.why,
+      preferredMoment: prev.preferredMoment ?? h.preferredMoment,
+    });
+  }
+  return { habits: [...map.values()], removed };
+}
+
+// Dédup déterministe des mémos (par texte normalisé), on garde le plus riche.
+export function dedupeNotes(
+  notes: ContextNote[] | undefined,
+): { notes: ContextNote[]; removed: number } {
+  const list = notes ?? [];
+  let removed = 0;
+  const map = new Map<string, ContextNote>();
+  for (const n of list) {
+    const k = normKey(n.text);
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, n);
+      continue;
+    }
+    removed++;
+    if (n.text.length > prev.text.length) map.set(k, { ...prev, text: n.text });
+  }
+  return { notes: [...map.values()], removed };
+}
+
 const HISTORY_CAP = 14;
 
 // Passage à un nouveau jour : archive la journée écoulée (priorités + plan, avec

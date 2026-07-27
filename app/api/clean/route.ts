@@ -3,6 +3,8 @@ import { requireUser } from "@/lib/auth";
 import { getState, putState } from "@/lib/db";
 import {
   applyReconciliation,
+  dedupeHabits,
+  dedupeNotes,
   dedupeObjectives,
   type Reconciliation,
 } from "@/lib/merge";
@@ -35,10 +37,12 @@ export async function POST() {
     });
   }
 
-  // 1) Dédup déterministe.
+  // 1) Dédup déterministe : caps/flux/étapes, mais aussi rituels et mémos.
   const dd = dedupeObjectives(current.state.objectives);
+  const hd = dedupeHabits(current.state.habits);
+  const nd = dedupeNotes(current.state.contextNotes);
   let objectives = dd.objectives;
-  let removed = dd.removed;
+  let removed = dd.removed + hd.removed + nd.removed;
   let shortened = 0;
 
   // 2) Raccourcir les titres de caps trop longs.
@@ -92,7 +96,12 @@ export async function POST() {
   const written = await putState(
     supabase,
     user.id,
-    { ...current.state, objectives },
+    {
+      ...current.state,
+      objectives,
+      ...(current.state.habits ? { habits: hd.habits } : {}),
+      ...(current.state.contextNotes ? { contextNotes: nd.notes } : {}),
+    },
     current.updatedAt,
   );
   return Response.json({
