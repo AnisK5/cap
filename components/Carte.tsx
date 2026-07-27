@@ -135,32 +135,55 @@ function ModeTab({
   );
 }
 
-// Progression d'un cap : une barre colorée (couleur du cap) + le compteur.
-// L'avancée se VOIT d'un coup d'œil — plus lisible et plus satisfaisant qu'un texte.
-function ProgressBar({
-  done,
-  total,
-  color,
-}: {
-  done: number;
-  total: number;
-  color: string;
-}) {
-  if (total === 0) return null;
-  const pct = Math.round((done / total) * 100);
+// Le chemin en miniature : un plot par jalon, reliés par un trait. Les jalons
+// franchis sont pleins (couleur du cap), le courant est un anneau qui respire
+// (animate-ping), les suivants sont creux. On ne LIT plus l'avancée — on la VOIT,
+// et on voit le parcours entier d'un coup d'œil. (C'est ça, « Chemins ».)
+function Stepper({ steps, color }: { steps: Step[]; color: string }) {
+  if (steps.length === 0) return null;
+  const currentId = steps.find((s) => !s.done)?.id;
+  const done = steps.filter((s) => s.done).length;
   return (
-    <div
-      className="flex items-center gap-2"
-      title={`${done}/${total} jalons franchis`}
-    >
-      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-line">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${Math.max(pct, done > 0 ? 8 : 0)}%`, background: color }}
-        />
+    <div className="flex items-center gap-2.5" title={`${done}/${steps.length} jalons franchis`}>
+      <div className="flex items-center">
+        {steps.map((s, i) => {
+          const isCurrent = s.id === currentId;
+          return (
+            <div key={s.id} className="flex items-center">
+              {i > 0 && (
+                <span
+                  className="h-[2px] w-4 sm:w-6"
+                  style={{
+                    background: steps[i - 1].done ? color : "var(--color-line)",
+                  }}
+                />
+              )}
+              {s.done ? (
+                <span
+                  className="h-3 w-3 rounded-full"
+                  style={{ background: color }}
+                  title={s.title}
+                />
+              ) : isCurrent ? (
+                <span className="relative flex h-3.5 w-3.5 items-center justify-center" title={s.title}>
+                  <span
+                    className="absolute inline-flex h-full w-full rounded-full opacity-40 motion-safe:animate-ping"
+                    style={{ background: color }}
+                  />
+                  <span
+                    className="relative h-3.5 w-3.5 rounded-full border-2 bg-surface"
+                    style={{ borderColor: color }}
+                  />
+                </span>
+              ) : (
+                <span className="h-2 w-2 rounded-full bg-line" title={s.title} />
+              )}
+            </div>
+          );
+        })}
       </div>
       <span className="text-xs font-semibold" style={{ color }}>
-        {done}/{total}
+        {done}/{steps.length}
       </span>
     </div>
   );
@@ -401,8 +424,11 @@ function CapPath({
   return (
     <section className="animate-rise mb-3">
       <div
-        className="overflow-hidden rounded-2xl border border-line bg-surface/60 shadow-sm transition-shadow hover:shadow-md"
-        style={{ borderLeft: `4px solid ${color}` }}
+        className="overflow-hidden rounded-2xl border border-line shadow-sm transition-shadow hover:shadow-md"
+        style={{
+          borderLeft: `4px solid ${color}`,
+          background: `color-mix(in srgb, ${color} 5%, var(--color-surface))`,
+        }}
       >
         <div className="p-4">
           {/* En-tête : l'icône en tuile colorée, le cap, son échéance. Clic = déplier. */}
@@ -457,10 +483,10 @@ function CapPath({
             /* Déplié : le détail ÉDITABLE — cocher, réordonner, ajouter, changer
                l'état d'un flux, cible/horizon/récompense. */
             <div className="animate-fade mt-4 flex flex-col gap-4 border-t border-line/60 pt-4 text-sm">
-              <StepsEditor o={o} up={up} />
-              <FlowsEditor o={o} up={up} />
+              <StepsEditor o={o} up={up} color={color} />
+              <FlowsEditor o={o} up={up} color={color} />
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 rounded-xl border border-line/60 bg-canvas/40 px-3.5 py-3">
                 <EditableMetaLine
                   label="cible"
                   hint="ce qui dira « réussi », en chiffres"
@@ -503,26 +529,20 @@ function CapPath({
               </p>
             </div>
           ) : (
-            /* Replié : la barre de progression + le prochain pas en héros. */
-            <div className="mt-3 flex flex-col gap-2 pl-12">
-              {steps.length > 0 && (
-                <ProgressBar
-                  done={steps.filter((s) => s.done).length}
-                  total={steps.length}
-                  color={color}
-                />
-              )}
+            /* Replié : le chemin (stepper) + le prochain pas en héros. */
+            <div className="mt-3 flex flex-col gap-2.5 pl-12">
+              {steps.length > 0 && <Stepper steps={steps} color={color} />}
               {nextStep ? (
-                <p className="text-[0.95rem] font-medium leading-snug text-ink">
+                <p className="text-lg font-semibold leading-snug text-ink">
                   <span style={{ color }}>→ </span>
                   {nextStep.title}
                 </p>
               ) : steps.length > 0 ? (
-                <p className="text-sm font-medium" style={{ color }}>
+                <p className="text-base font-semibold" style={{ color }}>
                   Tous les jalons franchis ✓
                 </p>
               ) : active.length > 0 ? (
-                <p className="text-[0.95rem] font-medium leading-snug text-ink">
+                <p className="text-lg font-semibold leading-snug text-ink">
                   <span style={{ color }}>→ </span>
                   {active.map((f) => f.title).join(" · ")}
                 </p>
@@ -555,9 +575,11 @@ function CapPath({
 function StepsEditor({
   o,
   up,
+  color,
 }: {
   o: Objective;
   up?: (fn: (prev: Objective) => Objective) => void;
+  color: string;
 }) {
   const steps = o.steps ?? [];
   const currentId = steps.find((s) => !s.done)?.id;
@@ -586,7 +608,17 @@ function StepsEditor({
         {steps.map((s, i) => {
           const isCurrent = s.id === currentId;
           return (
-            <li key={s.id} className="group/step flex items-center gap-2">
+            <li
+              key={s.id}
+              className={`group/step flex items-center gap-2 rounded-lg ${
+                isCurrent ? "-mx-1.5 px-1.5 py-1" : ""
+              }`}
+              style={
+                isCurrent
+                  ? { background: `color-mix(in srgb, ${color} 9%, transparent)` }
+                  : undefined
+              }
+            >
               <button
                 onClick={() =>
                   patchSteps((st) =>
@@ -594,15 +626,16 @@ function StepsEditor({
                   )
                 }
                 title={s.done ? "marquer non fait" : "marquer fait"}
-                className={`w-5 text-left ${
-                  s.done
-                    ? "text-cap"
-                    : isCurrent
-                      ? "font-semibold text-cap"
-                      : "text-faint hover:text-cap"
-                }`}
+                className={`w-5 text-left ${isCurrent ? "font-semibold" : ""}`}
+                style={
+                  s.done || isCurrent
+                    ? { color }
+                    : undefined
+                }
               >
-                {s.done ? "✓" : isCurrent ? "◉" : "○"}
+                <span className={s.done || isCurrent ? "" : "text-faint"}>
+                  {s.done ? "✓" : isCurrent ? "◉" : "○"}
+                </span>
               </button>
               <InlineEdit
                 value={s.title}
@@ -615,7 +648,7 @@ function StepsEditor({
                   s.done
                     ? "text-faint line-through"
                     : isCurrent
-                      ? "text-ink"
+                      ? "font-medium text-ink"
                       : "text-muted"
                 }
                 inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
@@ -659,9 +692,11 @@ function StepsEditor({
 function FlowsEditor({
   o,
   up,
+  color,
 }: {
   o: Objective;
   up?: (fn: (prev: Objective) => Objective) => void;
+  color: string;
 }) {
   const flows = o.flows ?? [];
   const patchFlows = (fn: (flows: Flow[]) => Flow[]) =>
@@ -700,13 +735,21 @@ function FlowsEditor({
                     ),
                   )
                 }
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] ${
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${
                   f.state === "pause"
                     ? "bg-sink text-faint"
                     : f.state === "ralenti"
                       ? "bg-gold-soft text-gold"
-                      : "bg-cap-soft text-cap-ink"
+                      : ""
                 }`}
+                style={
+                  !f.state || f.state === "actif"
+                    ? {
+                        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+                        color,
+                      }
+                    : undefined
+                }
                 title="cliquer : actif → ralenti → pause"
               >
                 {f.state ?? "actif"}
