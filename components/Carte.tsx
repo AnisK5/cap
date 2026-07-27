@@ -134,6 +134,36 @@ function ModeTab({
   );
 }
 
+// Progression d'un cap en points : les jalons franchis pleins, le reste vides —
+// lisible d'un coup d'œil, et satisfaisant (l'avancée se VOIT). Au-delà de 6
+// jalons, on retombe sur un compteur pour ne pas noyer la ligne.
+function ProgressDots({ done, total }: { done: number; total: number }) {
+  if (total === 0) return null;
+  if (total > 6) {
+    return (
+      <span
+        className="shrink-0 text-xs font-semibold text-cap"
+        title={`${done}/${total} jalons franchis`}
+      >
+        {done}/{total}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex shrink-0 items-center gap-1"
+      title={`${done}/${total} jalons franchis`}
+    >
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className={`h-1.5 w-1.5 rounded-full ${i < done ? "bg-cap" : "bg-line"}`}
+        />
+      ))}
+    </span>
+  );
+}
+
 // ═════════════════════════ NIVEAU 1 : CHEMINS ════════════════════════════
 
 function PathsView({
@@ -399,44 +429,54 @@ function CapPath({
           </button>
         </p>
       ) : open ? null : (
-        <div className="mt-2 flex flex-col gap-1 pl-0.5 text-sm leading-relaxed">
-          {steps.length > 0 && (
-            <p>
-              <span className="font-medium text-ink">
-                {steps.filter((s) => s.done).length}/{steps.length} jalons
-              </span>
-              {o.target && (
-                <span className="text-faint">
-                  {" "}
-                  · cible&nbsp;: {o.target}
-                </span>
+        <div className="mt-2.5 flex flex-col gap-1.5 pl-0.5">
+          {/* Le héros : la seule ligne à lire d'un coup d'œil — le prochain pas,
+              précédé des points de progression. La cible (longue) attend le dépli. */}
+          {nextStep ? (
+            <div className="flex items-baseline gap-2.5">
+              {steps.length > 0 && (
+                <ProgressDots
+                  done={steps.filter((s) => s.done).length}
+                  total={steps.length}
+                />
               )}
-            </p>
-          )}
-          {active.length > 0 && (
-            <p className="text-muted">
-              <span className="text-faint">en continu&nbsp;: </span>
+              <p className="text-[0.95rem] font-medium leading-snug text-ink">
+                <span className="text-cap">→ </span>
+                {nextStep.title}
+              </p>
+            </div>
+          ) : steps.length > 0 ? (
+            <div className="flex items-center gap-2.5">
+              <ProgressDots done={steps.length} total={steps.length} />
+              <p className="text-sm font-medium text-cap">
+                Tous les jalons franchis ✓
+              </p>
+            </div>
+          ) : active.length > 0 ? (
+            <p className="text-[0.95rem] font-medium leading-snug text-ink">
+              <span className="text-cap">→ </span>
               {active.map((f) => f.title).join(" · ")}
             </p>
-          )}
-          {nextStep ? (
-            <p className="text-ink">
-              <span className="text-faint">prochain jalon&nbsp;: </span>
-              {nextStep.title}
+          ) : null}
+
+          {/* Secondaire, discret : le moteur (si un jalon est déjà le héros) et
+              le reste des jalons. */}
+          {(active.length > 0 && nextStep) || remaining > 1 ? (
+            <p className="text-xs text-faint">
+              {active.length > 0 && nextStep && (
+                <>en continu&nbsp;: {active.map((f) => f.title).join(" · ")}</>
+              )}
+              {active.length > 0 && nextStep && remaining > 1 && " · "}
               {remaining > 1 && (
-                <span className="text-faint">
-                  {" "}
-                  · puis {remaining - 1} autre{remaining > 2 ? "s" : ""}
-                </span>
+                <>
+                  puis {remaining - 1} jalon{remaining > 2 ? "s" : ""}
+                </>
               )}
             </p>
-          ) : steps.length > 0 ? (
-            <p className="text-muted">
-              <span className="text-faint">jalons&nbsp;: </span>tous franchis ✓
-            </p>
           ) : null}
-          {asleep && !open && (
-            <p className="text-gold">
+
+          {asleep && (
+            <p className="text-sm text-gold">
               {momentum} — un petit bloc pour le réveiller&nbsp;?
             </p>
           )}
