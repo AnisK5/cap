@@ -253,9 +253,14 @@ function mergeObjectives(
 }
 
 // Relie une priorité à un cap par le titre que l'assistant a nommé.
+// CRUCIAL : le réconcile ne renvoie JAMAIS `done` (ni l'id) — c'est un état
+// client, posé quand tu coches. Donc on REPORTE `done` ET l'id de la priorité
+// existante (match par titre), sinon chaque tour de chat les efface (« ça revient
+// en arrière ») et casse les refId du dayPlan qui pointaient dessus.
 function linkPriorities(
   objectives: Objective[],
   proposed: NonNullable<Reconciliation["priorities"]>,
+  existing: Priority[],
 ): Priority[] {
   return proposed
     .filter((p) => p.title?.trim())
@@ -265,12 +270,14 @@ function linkPriorities(
       const obj = key
         ? objectives.find((o) => normKey(o.title) === key)
         : undefined;
+      const prev = existing.find((e) => normKey(e.title) === normKey(p.title));
       return {
-        id: newId(),
+        id: prev?.id ?? newId(),
         title: p.title.trim(),
-        why: (p.why || "").trim(),
-        objectiveId: obj?.id,
-        ...(p.via?.trim() ? { via: p.via.trim() } : {}),
+        why: (p.why || "").trim() || prev?.why || "",
+        objectiveId: obj?.id ?? prev?.objectiveId,
+        done: prev?.done ?? false,
+        ...(p.via?.trim() ? { via: p.via.trim() } : prev?.via ? { via: prev.via } : {}),
       };
     });
 }
@@ -312,6 +319,7 @@ function linkDayPlan(
   priorities: Priority[],
   habits: Habit[] | undefined,
   proposed: NonNullable<Reconciliation["dayPlan"]>,
+  existing: DayItem[] | undefined,
 ): DayItem[] {
   const find = <T extends { id: string; title: string }>(
     list: T[] | undefined,
@@ -336,14 +344,21 @@ function linkDayPlan(
             : undefined;
       const ref = match && !usedRefs.has(match.id) ? match : undefined;
       if (ref) usedRefs.add(ref.id);
+      // On REPORTE l'état d'un créneau habit/fixed déjà connu (match titre+kind) :
+      // sinon cocher une douche/un repas, puis un tour de chat qui re-pose la
+      // journée, effacerait le ✓. (Pour un créneau `priority`, le `done` vit sur
+      // la priorité elle-même — déjà préservée par linkPriorities.)
+      const prev = existing?.find(
+        (e) => e.kind === d.kind && normKey(e.title) === normKey(d.title),
+      );
       return {
-        id: newId(),
+        id: prev?.id ?? newId(),
         kind: d.kind,
         ...(ref ? { refId: ref.id } : {}),
         title: d.title.trim(),
         ...(d.dueBy?.trim() ? { dueBy: d.dueBy.trim() } : {}),
         ...(d.why?.trim() ? { why: d.why.trim() } : {}),
-        done: d.done ?? false,
+        done: d.done ?? prev?.done ?? false,
       };
     });
 }
@@ -357,7 +372,7 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
     : state.objectives;
 
   const priorities = r.priorities?.length
-    ? linkPriorities(objectives, r.priorities)
+    ? linkPriorities(objectives, r.priorities, state.priorities)
     : state.priorities;
 
   const contextNotes =
@@ -372,7 +387,7 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
   // (sans ça, chaque message re-dérivant des priorités effacerait la journée).
   const dayPlan =
     r.dayPlan !== undefined
-      ? linkDayPlan(priorities, habits, r.dayPlan)
+      ? linkDayPlan(priorities, habits, r.dayPlan, state.dayPlan)
       : state.dayPlan;
 
   return {

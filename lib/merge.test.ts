@@ -285,6 +285,46 @@ describe("applyReconciliation — habitudes & journée", () => {
   });
 });
 
+// Régression : le chat re-propose souvent les mêmes priorités/journée à chaque
+// tour. Ces re-propositions ne doivent JAMAIS effacer ce que tu as coché (« ça
+// revient en arrière / on oublie les choses faites ») ni casser les refId.
+describe("applyReconciliation — le done survit à une re-proposition du chat", () => {
+  it("une priorité cochée garde son done ET son id quand le chat la re-propose", () => {
+    const state: CapState = {
+      ...baseState([jobCap()]),
+      priorities: [
+        { id: "p42", title: "8-10 invitations", why: "volume", done: true },
+      ],
+    };
+    const next = applyReconciliation(state, {
+      priorities: [
+        { title: "8-10 invitations", why: "volume", objective: "Un job product" },
+      ],
+    });
+    expect(next.priorities[0].id).toBe("p42"); // id stable → refId du dayPlan tient
+    expect(next.priorities[0].done).toBe(true); // le ✓ survit
+  });
+
+  it("un créneau habit/fixed coché garde son done quand la journée est re-posée", () => {
+    const state: CapState = {
+      ...baseState([jobCap()]),
+      habits: [{ id: "h1", title: "Sport", cadence: "tous les 2 jours" }],
+      dayPlan: [
+        { id: "d1", kind: "habit", refId: "h1", title: "Sport", done: true },
+        { id: "d2", kind: "fixed", title: "Douche", done: true },
+      ],
+    };
+    const next = applyReconciliation(state, {
+      dayPlan: [
+        { title: "Sport", kind: "habit", habit: "Sport" },
+        { title: "Douche", kind: "fixed" },
+      ],
+    });
+    expect(next.dayPlan![0].done).toBe(true);
+    expect(next.dayPlan![1].done).toBe(true);
+  });
+});
+
 describe("dedupeObjectives — nettoyage déterministe des doublons", () => {
   it("fusionne un flux dont les mots sont un sous-ensemble d'un autre", () => {
     const o: Objective = {
