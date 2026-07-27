@@ -320,15 +320,22 @@ function linkDayPlan(
     title
       ? list?.find((x) => normKey(x.title) === normKey(title))
       : undefined;
+  // Un cap/rituel ne se lie qu'à UN SEUL créneau : sinon deux créneaux partagent
+  // le même refId et, une priorité se cochant via elle-même, cocher l'un coche
+  // l'autre d'un coup (le bug du multi-cochage). Les créneaux en double gardent
+  // leur propre `done` et deviennent indépendants.
+  const usedRefs = new Set<string>();
   return proposed
     .filter((d) => d.title?.trim())
     .map((d) => {
-      const ref =
+      const match =
         d.kind === "priority"
           ? find(priorities, d.priority ?? d.title)
           : d.kind === "habit"
             ? find(habits, d.habit ?? d.title)
             : undefined;
+      const ref = match && !usedRefs.has(match.id) ? match : undefined;
+      if (ref) usedRefs.add(ref.id);
       return {
         id: newId(),
         kind: d.kind,
