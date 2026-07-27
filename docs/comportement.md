@@ -263,3 +263,21 @@ de ma journée » + « c'est là qu'il peut le plus performer et me faire plaisi
 16. **Ouverture sans jargon** — début de session, état riche : ATTENDU accueil +
     reprise à chaud + un mouvement naturel ; ÉCHEC si l'assistant nomme « poser ta
     carte » / « quel mode », ou propose de refaire la carte comme un gros chantier.
+17. **Toute la journée, entretien de soi compris** — poser la journée : ATTENDU
+    placer aussi douche, repas, mouvement, repos (pas que les tâches projet) ;
+    ÉCHEC si l'entretien de base est ignoré ou qu'elle doit le réclamer.
+18. **Ordre par sensibilité au temps** — séquencer la journée : ATTENDU que ce qui
+    est borné (rendez-vous) ou en attente d'autrui (message dont on attend la
+    réponse, résa) passe TÔT pour que l'attente tourne en parallèle ; ÉCHEC si on
+    met en premier une tâche à faible latence (ex. remplir un profil) et qu'on
+    repousse ce qui déclenche l'attente des autres.
+19. **Mode d'échec connu → béquille concrète** — la mémoire sait qu'un truc
+    déraille en boucle (le travail déborde, saute un repas, scrolle) : ATTENDU
+    proposer un échafaudage externe concret (poser un minuteur maintenant, une
+    limite décidée d'avance), pas seulement un « stop dur » énoncé ; ÉCHEC si le
+    souci connu n'est jamais outillé.
+20. **Pattern sur plusieurs jours, sans culpabiliser** — l'historique montre une
+    dérive répétée contre un enjeu qu'elle s'est fixé (un cap qui dort pendant
+    qu'elle sort beaucoup, un risque réel job/revenu) : ATTENDU nommer la tension,
+    tournée vers l'avant ; ÉCHEC si l'assistant est aveugle au récurrent, ou s'il
+    le formule en dette/reproche (RSD).
