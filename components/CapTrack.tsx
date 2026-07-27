@@ -13,8 +13,17 @@ export const CAP_PALETTE = [
   "#b0843a", // gold
 ];
 
+// Couleur STABLE par ordre de création (pas par position d'affichage) : ainsi
+// réordonner les caps par priorité ne change pas leurs couleurs — l'œil garde
+// « vert = Kamal » quoi qu'il arrive.
 export function capColor(objectives: Objective[], id?: string): string {
-  const i = id ? objectives.findIndex((o) => o.id === id) : -1;
+  if (!id) return "var(--color-cap)";
+  const byCreation = [...objectives].sort((a, b) => {
+    const at = a.createdAt ?? a.id;
+    const bt = b.createdAt ?? b.id;
+    return at < bt ? -1 : at > bt ? 1 : 0;
+  });
+  const i = byCreation.findIndex((o) => o.id === id);
   return i >= 0 ? CAP_PALETTE[i % CAP_PALETTE.length] : "var(--color-cap)";
 }
 

@@ -31,23 +31,11 @@ interface CarteProps {
   habits?: Habit[];
   onOpen: () => void;
   onDeleteCap?: (id: string) => void;
+  onReorderCap?: (id: string, dir: -1 | 1) => void;
   onUpdateObjective?: UpdateObjective;
   onUpdateHabits?: UpdateHabits;
   onClean?: () => void;
   cleaning?: boolean;
-}
-
-function sortObjectives(objectives: Objective[]): Objective[] {
-  return [...objectives].sort((a, b) => {
-    const hasData = (o: Objective) =>
-      (o.steps?.length ?? 0) + (o.flows?.length ?? 0) > 0;
-    const pa = hasData(a) ? (a.lastMovedAt ? 0 : 1) : 2;
-    const pb = hasData(b) ? (b.lastMovedAt ? 0 : 1) : 2;
-    if (pa !== pb) return pa - pb;
-    const at = a.lastMovedAt ?? a.createdAt;
-    const bt = b.lastMovedAt ?? b.createdAt;
-    return bt > at ? 1 : bt < at ? -1 : 0;
-  });
 }
 
 export default function Carte(props: CarteProps) {
@@ -70,7 +58,10 @@ export default function Carte(props: CarteProps) {
     );
   }
 
-  const sorted = sortObjectives(props.objectives);
+  // On affiche les caps dans l'ordre TEL QUEL du state = l'ordre de PRIORITÉ
+  // (réordonnable à la main). Plus de tri par momentum : l'ordre porte le sens,
+  // le plus important en haut — ça allège la lecture.
+  const sorted = props.objectives;
 
   return (
     <div>
@@ -102,6 +93,7 @@ export default function Carte(props: CarteProps) {
           objectives={sorted}
           onSeeWeeks={() => setMode("semaines")}
           colorOf={(id) => capColor(props.objectives, id)}
+          onReorderCap={props.onReorderCap}
         />
       ) : (
         <TimelineView
@@ -298,6 +290,7 @@ function PathsView({
   habits,
   onOpen,
   onDeleteCap,
+  onReorderCap,
   onUpdateObjective,
   onUpdateHabits,
   onSeeWeeks,
@@ -314,7 +307,7 @@ function PathsView({
 
   return (
     <div className="mx-auto max-w-2xl">
-      {objectives.map((o) => (
+      {objectives.map((o, i) => (
         <CapPath
           key={o.id}
           o={o}
@@ -323,6 +316,9 @@ function PathsView({
           onToggle={() => toggle(o.id)}
           onOpen={onOpen}
           onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
+          onMove={onReorderCap ? (dir) => onReorderCap(o.id, dir) : undefined}
+          isFirst={i === 0}
+          isLast={i === objectives.length - 1}
           onUpdate={onUpdateObjective}
           onSeeWeeks={onSeeWeeks}
         />
@@ -487,6 +483,9 @@ function CapPath({
   onToggle,
   onOpen,
   onDelete,
+  onMove,
+  isFirst,
+  isLast,
   onUpdate,
   onSeeWeeks,
 }: {
@@ -496,6 +495,9 @@ function CapPath({
   onToggle: () => void;
   onOpen: () => void;
   onDelete?: () => void;
+  onMove?: (dir: -1 | 1) => void;
+  isFirst?: boolean;
+  isLast?: boolean;
   onUpdate?: UpdateObjective;
   onSeeWeeks: () => void;
 }) {
@@ -520,7 +522,7 @@ function CapPath({
     : undefined;
 
   return (
-    <section className="animate-rise mb-3">
+    <section className="group/cap animate-rise mb-3">
       <div
         className="overflow-hidden rounded-2xl border border-line shadow-sm transition-shadow hover:shadow-md"
         style={{
@@ -547,6 +549,32 @@ function CapPath({
               inputClassName="font-display text-xl font-medium text-ink border-b border-cap/40 w-64"
             />
             <span className="ml-auto flex shrink-0 items-center gap-2">
+              {onMove && (
+                <span className="flex items-center text-faint sm:opacity-0 sm:transition-opacity sm:group-hover/cap:opacity-100">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMove(-1);
+                    }}
+                    disabled={isFirst}
+                    title="plus prioritaire (monter)"
+                    className="px-0.5 hover:text-ink disabled:opacity-25"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMove(1);
+                    }}
+                    disabled={isLast}
+                    title="moins prioritaire (descendre)"
+                    className="px-0.5 hover:text-ink disabled:opacity-25"
+                  >
+                    ↓
+                  </button>
+                </span>
+              )}
               {chip ? (
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-medium ${

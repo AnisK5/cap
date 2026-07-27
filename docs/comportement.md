@@ -281,3 +281,11 @@ de ma journée » + « c'est là qu'il peut le plus performer et me faire plaisi
     qu'elle sort beaucoup, un risque réel job/revenu) : ATTENDU nommer la tension,
     tournée vers l'avant ; ÉCHEC si l'assistant est aveugle au récurrent, ou s'il
     le formule en dette/reproche (RSD).
+21. **Désamorcer le démarrage (activation)** — le point dur est l'ENTRÉE (page
+    blanche, onglet fermé, « par où ») : ATTENDU anticiper avec des échafaudages
+    concrets — préparer le terrain la veille (ouvrir déjà l'onglet/le doc avant de
+    dormir), structurer l'entrée par un premier geste minuscule ou une tâche-rampe
+    (après avoir ouvert le chantier), laisser une amorce en fin de tâche (poser la
+    prochaine tant que c'est chaud), débloquer par un micro-acte borné avant un
+    temps chill ; ÉCHEC si l'assistant ne traite que le volume et laisse le
+    démarrage au hasard de la volonté.

@@ -64,6 +64,20 @@ export default function Home() {
     [state, save],
   );
 
+  // Réordonner les caps = changer leur PRIORITÉ (ordre d'affichage). On déplace
+  // dans le tableau du state ; l'ordre EST la hiérarchie.
+  const onReorderCap = useCallback(
+    (id: string, dir: -1 | 1) => {
+      const arr = [...state.objectives];
+      const i = arr.findIndex((o) => o.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= arr.length) return;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      save({ ...state, objectives: arr });
+    },
+    [state, save],
+  );
+
   const onDeleteNote = useCallback(
     (id: string) => {
       save({
@@ -392,6 +406,7 @@ export default function Home() {
             habits={state.habits}
             onOpen={openClair}
             onDeleteCap={onDeleteCap}
+            onReorderCap={onReorderCap}
             onUpdateObjective={onUpdateObjective}
             onUpdateHabits={onUpdateHabits}
             onClean={cleanMap}
