@@ -218,6 +218,24 @@ export default function Home() {
   const dayHero = dayPending[0];
   const dayRest = dayPending.slice(1);
 
+  // Les victoires du jour, EN DIRECT : un cerveau TDA sous-enregistre ce qu'il
+  // fait — on le lui met sous les yeux, en cadrage positif, qui monte à chaque
+  // coche. Série = jours passés consécutifs avec ≥1 fait, + aujourd'hui.
+  const doneToday = hasDay ? dayDone.length : doneItems.length;
+  const histForStreak = state.history ?? [];
+  let pastStreak = 0;
+  for (let i = histForStreak.length - 1; i >= 0; i--) {
+    const its = histForStreak[i].dayPlan?.length
+      ? histForStreak[i].dayPlan!
+      : histForStreak[i].priorities;
+    if (its.some((it) => it.done)) pastStreak++;
+    else break;
+  }
+  const streakToday = pastStreak + (doneToday > 0 ? 1 : 0);
+  const anyFranchised = state.objectives.some((o) =>
+    (o.steps ?? []).some((s) => s.done),
+  );
+
   // La journée pour le fil « Au clair » (bande secondaire, repliée) : le plan
   // s'il existe, sinon les priorités — état résolu (une prio se coche via elle-même).
   const chatDay: DayRow[] = hasDay
@@ -259,6 +277,10 @@ export default function Home() {
                     ? "Ta journée, posée avec Cap"
                     : "Posées aujourd'hui avec Cap"}
               </p>
+
+              {/* Les victoires du jour, en direct — le shot de dopamine avant
+                  même de regarder ce qu'il reste. */}
+              <WinsBanner done={doneToday} streak={streakToday} />
 
               {/* Les acquis du jour, mis en avant : la récompense d'abord,
                   avant le reste-à-faire. */}
@@ -377,11 +399,13 @@ export default function Home() {
           />
           {(state.contextNotes?.length ||
             state.history?.length ||
+            anyFranchised ||
             state.understanding?.trim()) && (
             <div className="mx-auto mt-6 max-w-2xl space-y-3">
-              {state.history && state.history.length > 0 && (
+              {(state.history?.length || anyFranchised) && (
                 <HistorySection
-                  history={state.history}
+                  history={state.history ?? []}
+                  objectives={state.objectives}
                   onToggle={onToggleHistory}
                 />
               )}
@@ -428,6 +452,38 @@ export default function Home() {
 // ── Aujourd'hui ───────────────────────────────────────────────────────────
 // LA priorité du jour en héros : au moment « je re-doute », l'œil tombe
 // dessus en une seconde. Pas de boîte — l'espace et l'échelle font le poids.
+
+// Le compteur de victoires du jour, EN DIRECT. Cadrage strictement positif :
+// à 0, on invite (jamais « 0 fait ») ; à ≥1, le chiffre monte et la série
+// s'affiche. Contre le « j'ai rien foutu » du soir.
+function WinsBanner({ done, streak }: { done: number; streak: number }) {
+  return (
+    <div className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface/60 px-4 py-3 shadow-sm">
+      {done > 0 ? (
+        <p className="flex items-baseline gap-2">
+          <span className="font-display text-2xl font-semibold leading-none text-cap">
+            🌟 {done}
+          </span>
+          <span className="text-sm text-muted">
+            victoire{done > 1 ? "s" : ""} aujourd&apos;hui
+          </span>
+        </p>
+      ) : (
+        <p className="text-sm text-muted">
+          Ta journée commence — la première victoire est à portée.
+        </p>
+      )}
+      {streak >= 2 && (
+        <span
+          className="flex shrink-0 items-center gap-1 rounded-full bg-gold-soft px-3 py-1.5 text-sm font-semibold text-gold"
+          title="jours d'affilée avec au moins une victoire"
+        >
+          🔥 {streak} j
+        </span>
+      )}
+    </div>
+  );
+}
 
 // Le rond à cocher : le geste-récompense, assez gros pour le pouce.
 function CheckCircle({
@@ -1013,9 +1069,11 @@ function ContextSection({
 // (le ✓ se lit plus que le reste-à-faire) et créneaux cochables rétroactivement.
 function HistorySection({
   history,
+  objectives,
   onToggle,
 }: {
   history: DayLog[];
+  objectives: Objective[];
   onToggle: (day: string, index: number) => void;
 }) {
   // Le jour ouvert pour cocher rétroactivement (par défaut : le plus récent, le
@@ -1062,6 +1120,58 @@ function HistorySection({
   }
   const sel = selected ? days.find((d) => d.day === selected) : null;
 
+  // Le RÉCIT durable : les jalons franchis de tous les caps, datés (doneAt),
+  // regroupés par semaine — « d'où on part → où on est ». Ça survit au-delà des
+  // 14 jours d'historique quotidien (les caps ne sont pas purgés). Les franchis
+  // sans date (avant qu'on horodate) tombent dans « Plus tôt ».
+  const trophies = objectives.flatMap((o) =>
+    (o.steps ?? [])
+      .filter((s) => s.done)
+      .map((s) => ({
+        key: `${o.id}:${s.id}`,
+        title: s.title,
+        capTitle: o.title,
+        capIcon: o.icon,
+        color: capColor(objectives, o.id),
+        doneAt: s.doneAt,
+      })),
+  );
+  const weekOf = (iso?: string): number | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    const monday = (x: Date) => {
+      const c = new Date(x);
+      c.setHours(0, 0, 0, 0);
+      c.setDate(c.getDate() - ((c.getDay() + 6) % 7));
+      return c;
+    };
+    return Math.round(
+      (monday(new Date()).getTime() - monday(d).getTime()) / (7 * 86_400_000),
+    );
+  };
+  const weekLabel = (w: number | null): string =>
+    w === null
+      ? "Plus tôt"
+      : w <= 0
+        ? "Cette semaine"
+        : w === 1
+          ? "La semaine dernière"
+          : `Il y a ${w} semaines`;
+  trophies.sort((a, b) => {
+    if (!a.doneAt && !b.doneAt) return 0;
+    if (!a.doneAt) return 1;
+    if (!b.doneAt) return -1;
+    return a.doneAt < b.doneAt ? 1 : -1;
+  });
+  const trophyGroups: { label: string; items: typeof trophies }[] = [];
+  for (const t of trophies) {
+    const label = weekLabel(weekOf(t.doneAt));
+    const last = trophyGroups[trophyGroups.length - 1];
+    if (last && last.label === label) last.items.push(t);
+    else trophyGroups.push({ label, items: [t] });
+  }
+
   return (
     <section className="animate-rise rounded-2xl border border-line bg-surface/60 p-4 shadow-sm sm:p-5">
       {/* En-tête : le compteur de victoires en gros (dopamine), la série en pastille. */}
@@ -1072,11 +1182,17 @@ function HistorySection({
           </p>
           <p className="mt-1 flex items-baseline gap-2">
             <span className="font-display text-3xl font-semibold leading-none text-cap">
-              {totalDone}
+              {totalDone + trophies.length}
             </span>
             <span className="text-sm text-muted">
-              victoire{totalDone > 1 ? "s" : ""} sur {days.length} jour
-              {days.length > 1 ? "s" : ""}
+              victoire{totalDone + trophies.length > 1 ? "s" : ""}
+              {trophies.length > 0 && (
+                <>
+                  {" "}
+                  · {trophies.length} jalon{trophies.length > 1 ? "s" : ""} franchi
+                  {trophies.length > 1 ? "s" : ""}
+                </>
+              )}
             </span>
           </p>
         </div>
@@ -1093,6 +1209,7 @@ function HistorySection({
       {/* Le mur des jours : une tuile FIXE par jour (façon tracker), qui se
           remplit vers la droite. Plus la journée est pleine, plus ça brille.
           Clique une tuile pour cocher après coup. */}
+      {days.length > 0 && (
       <div className="mt-4 flex flex-wrap gap-1.5">
         {days.map((d) => {
           const active = d.day === selected;
@@ -1128,6 +1245,7 @@ function HistorySection({
           );
         })}
       </div>
+      )}
 
       {/* Détail du jour sélectionné : cochable rétroactivement (t'as fait ton
           sport mais oublié la case → tu corriges, ton track record reste juste). */}
@@ -1169,6 +1287,43 @@ function HistorySection({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Le récit : les jalons franchis, en trophées, groupés par semaine. Le
+          « d'où on part → où on est » qui dure au-delà des 14 jours. */}
+      {trophyGroups.length > 0 && (
+        <div className="mt-5 border-t border-line/60 pt-4">
+          <p className="mb-3 text-xs uppercase tracking-[0.15em] text-faint">
+            Jalons franchis
+          </p>
+          <div className="flex flex-col gap-4">
+            {trophyGroups.map((g) => (
+              <div key={g.label}>
+                <p className="mb-1.5 text-xs font-medium text-muted">{g.label}</p>
+                <ul className="flex flex-col gap-1.5">
+                  {g.items.map((t) => (
+                    <li key={t.key} className="flex items-baseline gap-2.5">
+                      <span
+                        className="flex h-4 w-4 shrink-0 translate-y-0.5 items-center justify-center rounded-full text-[0.6rem] font-bold text-canvas"
+                        style={{ background: t.color }}
+                      >
+                        ✓
+                      </span>
+                      <span className="min-w-0 flex-1 text-sm leading-snug text-ink">
+                        {t.title}
+                        <span className="text-faint">
+                          {" "}
+                          · {t.capIcon ? `${t.capIcon} ` : ""}
+                          {t.capTitle}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>
