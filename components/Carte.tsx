@@ -258,6 +258,30 @@ function MoteurChip({ flows, color }: { flows: Flow[]; color: string }) {
   );
 }
 
+// Une pastille de contexte discrète (l'« autre » chose : le prochain jalon quand
+// le moteur est focal, ou l'inverse). Juste une icône + un titre tronqué.
+function ContextChip({
+  icon,
+  title,
+  color,
+}: {
+  icon: string;
+  title: string;
+  color: string;
+}) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+      style={{ borderColor: `color-mix(in srgb, ${color} 30%, var(--color-line))` }}
+    >
+      <span className="shrink-0 font-semibold" style={{ color }}>
+        {icon}
+      </span>
+      <span className="truncate text-muted">{title}</span>
+    </span>
+  );
+}
+
 // Le nudge « ce cap dort » en pastille colorée plutôt qu'en texte perdu.
 function NudgePill({ momentum }: { momentum: string }) {
   return (
@@ -481,6 +505,11 @@ function CapPath({
   const steps = o.steps ?? [];
   const flows = o.flows ?? [];
   const active = flows.filter((f) => !f.waitingOn && f.state !== "pause");
+  // Un flux ACTIF (vs ralenti/pause/en attente) = le moteur qu'on alimente
+  // maintenant. S'il y en a un, c'est LUI la prio (postuler, prospecter…),
+  // pas le jalon de setup. Sinon, la prio = le prochain jalon.
+  const liveFlows = active.filter((f) => (f.state ?? "actif") === "actif");
+  const moteurDriven = liveFlows.length > 0;
   const hasData = steps.length + flows.length > 0;
   const hasTiming = [...steps, ...flows].some((t) => t.fromWeek !== undefined);
   const nextStep = steps.find((s) => !s.done);
@@ -552,25 +581,28 @@ function CapPath({
             /* Déplié : le détail ÉDITABLE — cocher, réordonner, ajouter, changer
                l'état d'un flux, cible/horizon/récompense. */
             <div className="animate-fade mt-4 flex flex-col gap-4 border-t border-line/60 pt-4 text-sm">
-              {nextStep ? (
+              {moteurDriven ? (
+                <PriorityCallout
+                  label="Le moteur — maintenant"
+                  title={liveFlows.map((f) => f.title).join(" · ")}
+                  icon="⚙"
+                  color={color}
+                />
+              ) : nextStep ? (
                 <PriorityCallout
                   label="Prochaine étape"
                   title={nextStep.title}
                   icon="→"
                   color={color}
                 />
-              ) : active.length > 0 ? (
-                <PriorityCallout
-                  label="Le moteur tourne"
-                  title={active.map((f) => f.title).join(" · ")}
-                  icon="⚙"
-                  color={color}
-                />
               ) : null}
               <StepsEditor o={o} up={up} color={color} />
               <FlowsEditor o={o} up={up} color={color} />
 
-              <div className="flex flex-col gap-1.5 rounded-xl border border-line/60 bg-canvas/40 px-3.5 py-3">
+              {/* Repère minimal, en ligne : cible + horizon. La récompense n'est
+                  plus dupliquée ici — c'est le ★ au bout du chemin ; on ne
+                  propose de la définir que si elle manque. */}
+              <div className="flex flex-wrap gap-x-6 gap-y-1.5 rounded-xl border border-line/60 bg-canvas/40 px-3.5 py-2.5">
                 <EditableMetaLine
                   label="cible"
                   hint="ce qui dira « réussi », en chiffres"
@@ -583,12 +615,14 @@ function CapPath({
                   value={o.horizon}
                   onChange={up ? (v) => up((p) => ({ ...p, horizon: v })) : undefined}
                 />
-                <EditableMetaLine
-                  label="récompense"
-                  hint="ce que ce cap débloque"
-                  value={o.unlocks}
-                  onChange={up ? (v) => up((p) => ({ ...p, unlocks: v })) : undefined}
-                />
+                {!o.unlocks && (
+                  <EditableMetaLine
+                    label="récompense"
+                    hint="ce que ce cap débloque"
+                    value={o.unlocks}
+                    onChange={up ? (v) => up((p) => ({ ...p, unlocks: v })) : undefined}
+                  />
+                )}
               </div>
 
               {asleep && momentum && <NudgePill momentum={momentum} />}
@@ -616,7 +650,14 @@ function CapPath({
             /* Replié : UN point focal (la prochaine action), puis le contexte
                démoté — progression + moteur côte à côte, pas empilés. */
             <div className="mt-3 flex flex-col gap-2.5 pl-12">
-              {nextStep ? (
+              {moteurDriven ? (
+                <PriorityCallout
+                  label="Le moteur — maintenant"
+                  title={liveFlows.map((f) => f.title).join(" · ")}
+                  icon="⚙"
+                  color={color}
+                />
+              ) : nextStep ? (
                 <PriorityCallout
                   label="Prochaine étape"
                   title={nextStep.title}
@@ -631,28 +672,21 @@ function CapPath({
                   color={color}
                   done
                 />
-              ) : active.length > 0 ? (
-                <PriorityCallout
-                  label="Le moteur tourne"
-                  title={active.map((f) => f.title).join(" · ")}
-                  icon="⚙"
-                  color={color}
-                />
               ) : null}
 
-              {/* Contexte, sur UNE ligne horizontale : progression + moteur. */}
-              {(steps.length > 0 || (active.length > 0 && nextStep)) && (
+              {/* Contexte, sur UNE ligne horizontale : progression + l'AUTRE
+                  chose (le jalon si moteur-focal, le moteur si jalon-focal). */}
+              {(steps.length > 0 ||
+                (moteurDriven && nextStep) ||
+                (!moteurDriven && active.length > 0)) && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   {steps.length > 0 && <Stepper steps={steps} color={color} />}
-                  {active.length > 0 && nextStep && (
+                  {moteurDriven && nextStep ? (
+                    <ContextChip icon="→" title={nextStep.title} color={color} />
+                  ) : !moteurDriven && active.length > 0 ? (
                     <MoteurChip flows={active} color={color} />
-                  )}
+                  ) : null}
                 </div>
-              )}
-              {remaining > 1 && nextStep && (
-                <p className="text-xs text-faint">
-                  puis {remaining - 1} jalon{remaining > 2 ? "s" : ""} sur le chemin
-                </p>
               )}
 
               {asleep && momentum && <NudgePill momentum={momentum} />}
@@ -692,7 +726,7 @@ function StepsEditor({
   return (
     <div>
       <p className="mb-1.5 text-xs uppercase tracking-[0.15em] text-faint">
-        Jalons <span className="normal-case tracking-normal">(dans l&apos;ordre — coche, réordonne)</span>
+        Le chemin
       </p>
       {steps.length === 0 && (
         <p className="text-faint">aucun jalon posé pour l&apos;instant</p>
@@ -849,11 +883,8 @@ function FlowsEditor({
         borderColor: `color-mix(in srgb, ${color} 25%, var(--color-line))`,
       }}
     >
-      <p className="mb-2 flex items-center gap-2">
-        <span className="text-sm font-semibold" style={{ color }}>
-          ⚙ Le moteur
-        </span>
-        <span className="text-xs text-faint">ce que tu alimentes — le vrai carburant</span>
+      <p className="mb-2 text-sm font-semibold" style={{ color }}>
+        ⚙ Le moteur
       </p>
       {flows.length === 0 && (
         <p className="text-sm text-faint">
