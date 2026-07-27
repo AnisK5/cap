@@ -1090,9 +1090,10 @@ function HistorySection({
         )}
       </div>
 
-      {/* Le mur des jours : une colonne par jour, plus c'est plein, plus ça brille.
-          On VOIT l'élan sur la semaine ; clique un jour pour cocher après coup. */}
-      <div className="mt-4 flex items-end gap-1.5">
+      {/* Le mur des jours : une tuile FIXE par jour (façon tracker), qui se
+          remplit vers la droite. Plus la journée est pleine, plus ça brille.
+          Clique une tuile pour cocher après coup. */}
+      <div className="mt-4 flex flex-wrap gap-1.5">
         {days.map((d) => {
           const active = d.day === selected;
           const intensity = d.done > 0 ? 22 + Math.round(d.ratio * 68) : 0;
@@ -1102,10 +1103,10 @@ function HistorySection({
               key={d.day}
               onClick={() => setSelected(active ? null : d.day)}
               title={`${fmt(d.day)} — ${d.done}/${d.total}`}
-              className="group flex flex-1 flex-col items-center gap-1"
+              className="group flex shrink-0 flex-col items-center gap-1"
             >
               <span
-                className="flex h-11 w-full items-center justify-center rounded-lg text-sm font-semibold transition-transform group-hover:-translate-y-0.5"
+                className="flex h-12 w-12 items-center justify-center rounded-xl text-base font-semibold transition-transform group-hover:-translate-y-0.5"
                 style={{
                   background:
                     d.done > 0

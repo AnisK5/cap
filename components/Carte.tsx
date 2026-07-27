@@ -548,19 +548,33 @@ function CapPath({
                 </p>
               ) : null}
 
-              {(active.length > 0 && nextStep) || remaining > 1 ? (
-                <p className="text-xs text-faint">
-                  {active.length > 0 && nextStep && (
-                    <>en continu&nbsp;: {active.map((f) => f.title).join(" · ")}</>
-                  )}
-                  {active.length > 0 && nextStep && remaining > 1 && " · "}
-                  {remaining > 1 && (
-                    <>
-                      puis {remaining - 1} jalon{remaining > 2 ? "s" : ""}
-                    </>
-                  )}
+              {/* Le moteur (flux actifs) en ligne VIVANTE, pas en gris perdu :
+                  souvent c'est lui le vrai sujet (candidater, prospecter…). */}
+              {active.length > 0 && nextStep && (
+                <p className="flex items-center gap-2 text-sm">
+                  <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+                    <span
+                      className="absolute inline-flex h-2 w-2 rounded-full opacity-50 motion-safe:animate-ping"
+                      style={{ background: color }}
+                    />
+                    <span
+                      className="relative h-2 w-2 rounded-full"
+                      style={{ background: color }}
+                    />
+                  </span>
+                  <span className="text-muted">
+                    <span className="font-semibold" style={{ color }}>
+                      Moteur
+                    </span>{" "}
+                    · {active.map((f) => f.title).join(" · ")}
+                  </span>
                 </p>
-              ) : null}
+              )}
+              {remaining > 1 && (
+                <p className="pl-4 text-xs text-faint">
+                  puis {remaining - 1} jalon{remaining > 2 ? "s" : ""}
+                </p>
+              )}
 
               {asleep && momentum && <NudgePill momentum={momentum} />}
             </div>
@@ -745,89 +759,129 @@ function FlowsEditor({
   const cycle = (st?: FlowState): FlowState =>
     st === "actif" || st === undefined ? "ralenti" : st === "ralenti" ? "pause" : "actif";
 
+  // Le moteur mérite un panneau à part, VIVANT : c'est souvent le vrai sujet
+  // (candidater, prospecter…), pas les jalons de setup. Fond teinté, point
+  // d'état qui pulse pour l'actif — l'œil ne le saute plus.
   return (
-    <div>
-      <p className="mb-1.5 text-xs uppercase tracking-[0.15em] text-faint">
-        En continu <span className="normal-case tracking-normal">(le moteur — clique l&apos;état pour le changer)</span>
+    <div
+      className="rounded-xl border p-3"
+      style={{
+        background: `color-mix(in srgb, ${color} 6%, var(--color-surface))`,
+        borderColor: `color-mix(in srgb, ${color} 25%, var(--color-line))`,
+      }}
+    >
+      <p className="mb-2 flex items-center gap-2">
+        <span className="text-sm font-semibold" style={{ color }}>
+          ⚙ Le moteur
+        </span>
+        <span className="text-xs text-faint">ce que tu alimentes — le vrai carburant</span>
       </p>
       {flows.length === 0 && (
-        <p className="text-faint">aucun flux — ce cap n&apos;a pas encore de moteur</p>
+        <p className="text-sm text-faint">
+          aucun flux — ce cap n&apos;a pas encore de moteur qui tourne
+        </p>
       )}
-      <ul className="flex flex-col gap-1">
-        {flows.map((f) => (
-          <li key={f.id} className="group/flow flex items-center gap-2">
-            <InlineEdit
-              value={f.title}
-              onChange={(t) =>
-                patchFlows((fl) =>
-                  fl.map((x) => (x.id === f.id ? { ...x, title: t } : x)),
-                )
-              }
-              className={f.state === "pause" ? "text-faint" : "text-muted"}
-              inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
-            />
-            {up ? (
-              <button
-                onClick={() =>
+      <ul className="flex flex-col gap-1.5">
+        {flows.map((f) => {
+          const blocked = !!f.waitingOn;
+          const st = f.state ?? "actif";
+          const live = st === "actif" && !blocked;
+          return (
+            <li key={f.id} className="group/flow flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+                {live && (
+                  <span
+                    className="absolute inline-flex h-2.5 w-2.5 rounded-full opacity-50 motion-safe:animate-ping"
+                    style={{ background: color }}
+                  />
+                )}
+                <span
+                  className="relative h-2.5 w-2.5 rounded-full"
+                  style={{
+                    background: blocked
+                      ? "var(--color-gold)"
+                      : st === "pause"
+                        ? "var(--color-line)"
+                        : st === "ralenti"
+                          ? "var(--color-gold)"
+                          : color,
+                    opacity: st === "pause" ? 0.7 : 1,
+                  }}
+                />
+              </span>
+              <InlineEdit
+                value={f.title}
+                onChange={(t) =>
                   patchFlows((fl) =>
-                    fl.map((x) =>
-                      x.id === f.id ? { ...x, state: cycle(x.state) } : x,
-                    ),
+                    fl.map((x) => (x.id === f.id ? { ...x, title: t } : x)),
                   )
                 }
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${
-                  f.state === "pause"
-                    ? "bg-sink text-faint"
-                    : f.state === "ralenti"
-                      ? "bg-gold-soft text-gold"
-                      : ""
-                }`}
-                style={
-                  !f.state || f.state === "actif"
-                    ? {
-                        background: `color-mix(in srgb, ${color} 16%, transparent)`,
-                        color,
+                className={st === "pause" ? "text-faint" : "font-medium text-ink"}
+                inputClassName="text-sm text-ink border-b border-cap/40 w-full bg-transparent focus:outline-none"
+              />
+              {up ? (
+                <button
+                  onClick={() =>
+                    patchFlows((fl) =>
+                      fl.map((x) =>
+                        x.id === f.id ? { ...x, state: cycle(x.state) } : x,
+                      ),
+                    )
+                  }
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${
+                    st === "pause"
+                      ? "bg-sink text-faint"
+                      : st === "ralenti"
+                        ? "bg-gold-soft text-gold"
+                        : ""
+                  }`}
+                  style={
+                    st === "actif"
+                      ? {
+                          background: `color-mix(in srgb, ${color} 18%, transparent)`,
+                          color,
+                        }
+                      : undefined
+                  }
+                  title="cliquer : actif → ralenti → pause"
+                >
+                  {st}
+                </button>
+              ) : (
+                <span className="text-xs text-faint">{st}</span>
+              )}
+              {f.waitingOn && (
+                <span className="shrink-0 text-xs text-gold">
+                  en attente&nbsp;: {f.waitingOn}
+                  {up && (
+                    <button
+                      onClick={() =>
+                        patchFlows((fl) =>
+                          fl.map((x) =>
+                            x.id === f.id ? { ...x, waitingOn: undefined } : x,
+                          ),
+                        )
                       }
-                    : undefined
-                }
-                title="cliquer : actif → ralenti → pause"
-              >
-                {f.state ?? "actif"}
-              </button>
-            ) : (
-              <span className="text-xs text-faint">{f.state ?? "actif"}</span>
-            )}
-            {f.waitingOn && (
-              <span className="shrink-0 text-xs text-faint">
-                en attente&nbsp;: {f.waitingOn}
-                {up && (
-                  <button
-                    onClick={() =>
-                      patchFlows((fl) =>
-                        fl.map((x) =>
-                          x.id === f.id ? { ...x, waitingOn: undefined } : x,
-                        ),
-                      )
-                    }
-                    className="ml-1 underline decoration-dotted hover:text-cap-ink"
-                    title="ce n'est plus bloqué"
-                  >
-                    libérer
-                  </button>
-                )}
-              </span>
-            )}
-            {up && (
-              <button
-                onClick={() => patchFlows((fl) => fl.filter((x) => x.id !== f.id))}
-                title="supprimer ce flux"
-                className="ml-auto shrink-0 px-0.5 text-faint hover:text-red-400 sm:opacity-0 sm:transition-opacity sm:group-hover/flow:opacity-100"
-              >
-                ×
-              </button>
-            )}
-          </li>
-        ))}
+                      className="ml-1 underline decoration-dotted hover:text-cap-ink"
+                      title="ce n'est plus bloqué"
+                    >
+                      libérer
+                    </button>
+                  )}
+                </span>
+              )}
+              {up && (
+                <button
+                  onClick={() => patchFlows((fl) => fl.filter((x) => x.id !== f.id))}
+                  title="supprimer ce flux"
+                  className="ml-auto shrink-0 px-0.5 text-faint hover:text-red-400 sm:opacity-0 sm:transition-opacity sm:group-hover/flow:opacity-100"
+                >
+                  ×
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
       {up && (
         <AddInline
