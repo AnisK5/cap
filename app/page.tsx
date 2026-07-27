@@ -107,6 +107,35 @@ export default function Home() {
     [state, save, onTogglePriority],
   );
 
+  // Cocher/décocher rétroactivement un créneau d'un jour PASSÉ : un oubli de
+  // case ne doit pas figer un jour à jamais. On écrit dans l'historique, sur la
+  // même liste que celle affichée (dayPlan si présent, sinon priorities).
+  const onToggleHistory = useCallback(
+    (day: string, index: number) => {
+      save({
+        ...state,
+        history: (state.history ?? []).map((log) => {
+          if (log.day !== day) return log;
+          if (log.dayPlan?.length) {
+            return {
+              ...log,
+              dayPlan: log.dayPlan.map((it, i) =>
+                i === index ? { ...it, done: !it.done } : it,
+              ),
+            };
+          }
+          return {
+            ...log,
+            priorities: log.priorities.map((it, i) =>
+              i === index ? { ...it, done: !it.done } : it,
+            ),
+          };
+        }),
+      });
+    },
+    [state, save],
+  );
+
   // Édition manuelle : toute modification d'un cap (titres, jalons cochés /
   // réordonnés / ajoutés, états de flux, cible, horizon) passe par ici.
   const onUpdateObjective = useCallback(
@@ -363,7 +392,10 @@ export default function Home() {
                 />
               )}
               {state.history && state.history.length > 0 && (
-                <HistorySection history={state.history} />
+                <HistorySection
+                  history={state.history}
+                  onToggle={onToggleHistory}
+                />
               )}
             </div>
           )}
@@ -964,8 +996,15 @@ function ContextSection({
 }
 
 // Historique léger : les jours passés (prévu vs fait), archivés au rollover.
-// Replié par défaut — c'est un rappel, pas le centre de l'écran.
-function HistorySection({ history }: { history: DayLog[] }) {
+// Replié par défaut — c'est un rappel, pas le centre de l'écran. Cadrage VICTOIRES
+// (le ✓ se lit plus que le reste-à-faire) et créneaux cochables rétroactivement.
+function HistorySection({
+  history,
+  onToggle,
+}: {
+  history: DayLog[];
+  onToggle: (day: string, index: number) => void;
+}) {
   const [open, setOpen] = useState(false);
   const fmt = (day: string) => {
     const d = new Date(`${day}T00:00:00`);
@@ -977,6 +1016,11 @@ function HistorySection({ history }: { history: DayLog[] }) {
           month: "short",
         }).format(d);
   };
+  // Total des victoires : le cadrage positif (« ce que tu as fait », pas le manque).
+  const totalDone = history.reduce((n, log) => {
+    const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
+    return n + items.filter((i) => i.done).length;
+  }, 0);
   return (
     <div className="mt-8">
       <button
@@ -985,6 +1029,11 @@ function HistorySection({ history }: { history: DayLog[] }) {
       >
         <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
         Jours passés ({history.length})
+        {totalDone > 0 && (
+          <span className="ml-1 normal-case tracking-normal text-cap">
+            · {totalDone} ✓
+          </span>
+        )}
       </button>
       {open && (
         <ul className="mt-3 space-y-4">
@@ -995,24 +1044,41 @@ function HistorySection({ history }: { history: DayLog[] }) {
               <li key={log.day}>
                 <p className="text-sm font-medium text-muted">
                   {fmt(log.day)}
-                  <span className="ml-2 font-normal text-faint">
+                  <span
+                    className={`ml-2 font-normal ${done > 0 ? "text-cap" : "text-faint"}`}
+                  >
                     {done}/{items.length} fait
                   </span>
                 </p>
                 <ul className="mt-1.5 space-y-1">
                   {items.map((it, i) => (
-                    <li
-                      key={i}
-                      className="flex items-baseline gap-2 text-sm leading-snug"
-                    >
-                      <span className={it.done ? "text-cap" : "text-faint"}>
-                        {it.done ? "✓" : "○"}
-                      </span>
-                      <span
-                        className={it.done ? "text-faint" : "text-muted"}
+                    <li key={i}>
+                      {/* Cochable : t'as fait ton sport mais oublié la case →
+                          tu corriges, ton track record reste juste. */}
+                      <button
+                        onClick={() => onToggle(log.day, i)}
+                        title={it.done ? "marquer non fait" : "marquer fait"}
+                        className="group/h flex w-full items-baseline gap-2 text-left text-sm leading-snug"
                       >
-                        {it.title}
-                      </span>
+                        <span
+                          className={
+                            it.done
+                              ? "text-cap"
+                              : "text-faint group-hover/h:text-cap"
+                          }
+                        >
+                          {it.done ? "✓" : "○"}
+                        </span>
+                        <span
+                          className={
+                            it.done
+                              ? "text-muted"
+                              : "text-faint group-hover/h:text-muted"
+                          }
+                        >
+                          {it.title}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>
