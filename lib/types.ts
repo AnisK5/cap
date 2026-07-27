@@ -127,6 +127,14 @@ export interface DayLog {
   note?: string;
 }
 
+// Le total de victoires (créneaux faits) d'UNE semaine, agrégé au rollover.
+// Durable et compact — survit au-delà des 14 jours d'historique détaillé, pour
+// que le « Parcours » montre « ce qu'on a fait par semaine DEPUIS LE DÉBUT ».
+export interface WeekWins {
+  week: string; // AAAA-MM-JJ du lundi de la semaine (local)
+  wins: number; // créneaux cochés cette semaine-là
+}
+
 // L'état complet, persistant. `understanding` = ce que l'assistant a compris de
 // toi (objectifs, contraintes, décisions passées) — le moat, mis à jour au fil
 // de l'eau. `lastNote` = la phrase élégante « voilà ce qui a changé ».
@@ -141,6 +149,7 @@ export interface CapState {
   habits?: Habit[]; // les rituels persistants, appris par la conversation
   dayPlan?: DayItem[]; // la journée ordonnée, tenue en direct
   history?: DayLog[]; // les jours passés, archivés au rollover (cappé ~14)
+  weeklyLog?: WeekWins[]; // victoires agrégées par semaine, durable (le Parcours)
 }
 
 export const EMPTY_STATE: CapState = {

@@ -488,13 +488,42 @@ export function rollDay(state: CapState, dayIso: string): CapState {
     ? [...(state.history ?? []), log].slice(-HISTORY_CAP)
     : state.history;
 
+  // Agrégat DURABLE par semaine (le Parcours) : on ajoute les victoires du jour
+  // clôturé au seau de sa semaine (lundi). Ça survit au-delà des 14 jours.
+  const dayWins =
+    (log.dayPlan?.length ? log.dayPlan : log.priorities).filter((i) => i.done)
+      .length;
+  let weeklyLog = state.weeklyLog;
+  if (hadContent && dayWins > 0) {
+    const wk = mondayIso(dayIso);
+    const prev = state.weeklyLog ?? [];
+    const found = prev.find((w) => w.week === wk);
+    weeklyLog = found
+      ? prev.map((w) => (w.week === wk ? { ...w, wins: w.wins + dayWins } : w))
+      : [...prev, { week: wk, wins: dayWins }].sort((a, b) =>
+          a.week < b.week ? -1 : a.week > b.week ? 1 : 0,
+        );
+  }
+
   return {
     ...state,
     priorities: [],
     dayPlan: undefined,
     prioritiesDate: undefined,
     history,
+    weeklyLog,
   };
+}
+
+// Le lundi (AAAA-MM-JJ, local) de la semaine d'une date ISO « AAAA-MM-JJ ».
+export function mondayIso(dayIso: string): string {
+  const d = new Date(`${dayIso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dayIso;
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 // Nettoyage DÉTERMINISTE des doublons DANS chaque cap : deux flux (ou deux

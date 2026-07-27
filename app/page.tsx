@@ -6,7 +6,7 @@ import {
   readLegacyState,
   useCap,
 } from "@/lib/store";
-import { sameLocalDay } from "@/lib/merge";
+import { mondayIso, sameLocalDay } from "@/lib/merge";
 import type {
   CapState,
   ContextNote,
@@ -21,7 +21,7 @@ import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
 import InstallPrompt, { InstallBanner } from "@/components/InstallPrompt";
 
-type View = "clair" | "today" | "carte";
+type View = "clair" | "today" | "carte" | "parcours";
 
 export default function Home() {
   const { state, ready, hasServerState, replace, save } = useCap();
@@ -412,18 +412,8 @@ export default function Home() {
             onClean={cleanMap}
             cleaning={cleaning}
           />
-          {(state.contextNotes?.length ||
-            state.history?.length ||
-            anyFranchised ||
-            state.understanding?.trim()) && (
+          {(state.contextNotes?.length || state.understanding?.trim()) && (
             <div className="mx-auto mt-6 max-w-2xl space-y-3">
-              {(state.history?.length || anyFranchised) && (
-                <HistorySection
-                  history={state.history ?? []}
-                  objectives={state.objectives}
-                  onToggle={onToggleHistory}
-                />
-              )}
               {state.understanding?.trim() && (
                 <UnderstandingSection
                   text={state.understanding.trim()}
@@ -439,6 +429,10 @@ export default function Home() {
             </div>
           )}
         </>
+      )}
+
+      {view === "parcours" && (
+        <ParcoursView state={state} onToggleHistory={onToggleHistory} />
       )}
 
       {/* Monté en permanence pour ne PAS perdre la conversation en changeant
@@ -993,7 +987,13 @@ function Header({
     month: "long",
   }).format(new Date());
   const title =
-    view === "today" ? "Aujourd'hui" : view === "carte" ? "La carte" : "Au clair";
+    view === "today"
+      ? "Aujourd'hui"
+      : view === "carte"
+        ? "La carte"
+        : view === "parcours"
+          ? "Parcours"
+          : "Au clair";
   return (
     <header className="mb-8 sm:mb-10">
       <div className="flex items-center justify-between gap-3">
@@ -1019,6 +1019,9 @@ function Header({
         </Tab>
         <Tab active={view === "today"} onClick={() => onView("today")}>
           Aujourd&apos;hui
+        </Tab>
+        <Tab active={view === "parcours"} onClick={() => onView("parcours")}>
+          Parcours
         </Tab>
       </div>
     </header>
@@ -1058,6 +1061,7 @@ function BottomNav({
     { v: "clair", label: "Au clair" },
     { v: "today", label: "Aujourd'hui" },
     { v: "carte", label: "La carte" },
+    { v: "parcours", label: "Parcours" },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
@@ -1139,6 +1143,244 @@ function ContextSection({
   );
 }
 
+// ── Parcours : le lieu de l'accompli ──────────────────────────────────────
+// « D'où on part → où on est » : point de départ, total de victoires, série,
+// avancée de chaque cap, et ce qu'on a fait SEMAINE PAR SEMAINE depuis le début.
+// Durable (weeklyLog + jalons datés). Cadrage strictement positif : on ne montre
+// que ce qui a été fait, jamais les creux en reproche (anti-RSD).
+function ParcoursView({
+  state,
+  onToggleHistory,
+}: {
+  state: CapState;
+  onToggleHistory: (day: string, index: number) => void;
+}) {
+  const anyFranchised = state.objectives.some((o) =>
+    (o.steps ?? []).some((s) => s.done),
+  );
+  const hasAnything =
+    (state.history?.length ?? 0) > 0 ||
+    anyFranchised ||
+    (state.weeklyLog?.length ?? 0) > 0;
+
+  if (!hasAnything) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <div className="animate-rise rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-14 text-center">
+          <p className="mx-auto max-w-md font-display text-xl italic leading-relaxed text-muted">
+            Ton parcours s&apos;écrit ici. Coche ta première victoire, franchis un
+            jalon — et tu verras la trace se construire, semaine après semaine.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-3">
+      <JourneyHeader state={state} />
+      <CapArcs objectives={state.objectives} />
+      {(state.history?.length || anyFranchised) && (
+        <HistorySection
+          history={state.history ?? []}
+          objectives={state.objectives}
+          onToggle={onToggleHistory}
+          hideHeader
+        />
+      )}
+    </div>
+  );
+}
+
+// L'en-tête du parcours : depuis quand, le total (créneaux faits + jalons
+// franchis), la série, et le MUR DES SEMAINES — une barre par semaine depuis le
+// début, pour VOIR l'élan sur la durée (l'antidote à la cécité au temps du TDA).
+function JourneyHeader({ state }: { state: CapState }) {
+  const startIso =
+    [...state.objectives.map((o) => o.createdAt)].filter(Boolean).sort()[0] ??
+    (state.history?.[0]?.day ? `${state.history[0].day}T00:00:00` : undefined) ??
+    (state.weeklyLog?.[0]?.week
+      ? `${state.weeklyLog[0].week}T00:00:00`
+      : undefined);
+
+  // Victoires par semaine (durable) : weeklyLog fait foi, complété par la somme
+  // des jours d'historique (transition tant que weeklyLog se remplit), + les
+  // jalons franchis datés de la semaine.
+  const weekly = new Map<string, number>();
+  const setMax = (wk: string, n: number) =>
+    weekly.set(wk, Math.max(weekly.get(wk) ?? 0, n));
+  const bump = (wk: string, n: number) =>
+    weekly.set(wk, (weekly.get(wk) ?? 0) + n);
+  for (const w of state.weeklyLog ?? []) setMax(w.week, w.wins);
+  const histWeek = new Map<string, number>();
+  for (const log of state.history ?? []) {
+    const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
+    const wk = mondayIso(log.day);
+    histWeek.set(wk, (histWeek.get(wk) ?? 0) + items.filter((i) => i.done).length);
+  }
+  for (const [wk, n] of histWeek) setMax(wk, n);
+  const taskWins = [...weekly.values()].reduce((a, b) => a + b, 0);
+
+  // Jalons franchis (durables, datés) → total + ajoutés au mur des semaines.
+  let jalonTotal = 0;
+  for (const o of state.objectives) {
+    for (const s of o.steps ?? []) {
+      if (s.done) {
+        jalonTotal++;
+        if (s.doneAt) bump(mondayIso(s.doneAt.slice(0, 10)), 1);
+      }
+    }
+  }
+  const total = taskWins + jalonTotal;
+
+  // Série (jours passés consécutifs avec ≥1 victoire).
+  const hist = state.history ?? [];
+  let streak = 0;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const items = hist[i].dayPlan?.length ? hist[i].dayPlan! : hist[i].priorities;
+    if (items.some((it) => it.done)) streak++;
+    else break;
+  }
+
+  // Le mur : de la semaine de départ à cette semaine (borné à ~2 ans).
+  const weeks: { wk: string; wins: number }[] = [];
+  if (startIso) {
+    const d = new Date(`${mondayIso(startIso.slice(0, 10))}T00:00:00`);
+    const end = new Date(`${mondayIso(new Date().toISOString().slice(0, 10))}T00:00:00`);
+    let guard = 0;
+    while (d.getTime() <= end.getTime() && guard < 110) {
+      const wk = mondayIso(
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+      );
+      weeks.push({ wk, wins: weekly.get(wk) ?? 0 });
+      d.setDate(d.getDate() + 7);
+      guard++;
+    }
+  }
+  const maxWins = Math.max(1, ...weeks.map((w) => w.wins));
+  const fmtStart = startIso
+    ? new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(
+        new Date(startIso),
+      )
+    : null;
+  const fmtWeek = (wk: string) =>
+    new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(
+      new Date(`${wk}T00:00:00`),
+    );
+
+  return (
+    <section className="animate-rise rounded-2xl border border-line bg-surface/60 p-4 shadow-sm sm:p-5">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.15em] text-faint">
+            Ton parcours{fmtStart ? ` · depuis le ${fmtStart}` : ""}
+          </p>
+          <p className="mt-1 flex items-baseline gap-2">
+            <span className="font-display text-4xl font-semibold leading-none text-cap">
+              {total}
+            </span>
+            <span className="text-sm text-muted">
+              victoire{total > 1 ? "s" : ""}
+              {jalonTotal > 0 && (
+                <>
+                  {" "}
+                  · {jalonTotal} jalon{jalonTotal > 1 ? "s" : ""} franchi
+                  {jalonTotal > 1 ? "s" : ""}
+                </>
+              )}
+            </span>
+          </p>
+        </div>
+        {streak >= 2 && (
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-full bg-gold-soft px-3 py-1.5 text-sm font-semibold text-gold"
+            title="jours d'affilée avec au moins une victoire"
+          >
+            🔥 {streak} j
+          </span>
+        )}
+      </div>
+
+      {weeks.length > 1 && (
+        <div className="mt-5">
+          <p className="mb-2 text-xs uppercase tracking-[0.15em] text-faint">
+            Semaine par semaine
+          </p>
+          <div className="flex h-16 items-end gap-1">
+            {weeks.map((w) => {
+              const h = w.wins > 0 ? 12 + Math.round((w.wins / maxWins) * 52) : 3;
+              return (
+                <div
+                  key={w.wk}
+                  title={`Semaine du ${fmtWeek(w.wk)} — ${w.wins} victoire${w.wins > 1 ? "s" : ""}`}
+                  className="min-w-0 flex-1 rounded-t-md transition-all"
+                  style={{
+                    height: h,
+                    background:
+                      w.wins > 0
+                        ? `color-mix(in srgb, var(--color-cap) ${45 + Math.round((w.wins / maxWins) * 45)}%, var(--color-surface))`
+                        : "var(--color-sink)",
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div className="mt-1.5 flex justify-between text-[0.6rem] uppercase text-faint">
+            <span>{weeks.length > 0 ? fmtWeek(weeks[0].wk) : ""}</span>
+            <span>cette semaine</span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// L'avancée de chaque cap : d'où on part → où on est, en une barre par cap.
+function CapArcs({ objectives }: { objectives: Objective[] }) {
+  const caps = objectives.filter((o) => (o.steps?.length ?? 0) > 0);
+  if (caps.length === 0) return null;
+  return (
+    <section className="animate-rise rounded-2xl border border-line bg-surface/60 p-4 shadow-sm sm:p-5">
+      <p className="mb-3 text-xs uppercase tracking-[0.15em] text-faint">
+        L&apos;avancée de tes caps
+      </p>
+      <ul className="flex flex-col gap-3.5">
+        {caps.map((o) => {
+          const total = o.steps!.length;
+          const done = o.steps!.filter((s) => s.done).length;
+          const color = capColor(objectives, o.id);
+          const pct = Math.round((done / total) * 100);
+          return (
+            <li key={o.id}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-sm font-medium text-ink">
+                  {o.icon && <span className="mr-1">{o.icon}</span>}
+                  {o.title}
+                </span>
+                <span
+                  className="shrink-0 text-xs font-semibold"
+                  style={{ color }}
+                >
+                  {done}/{total}
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-line">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(pct, done > 0 ? 6 : 0)}%`,
+                    background: color,
+                  }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 // Historique léger : les jours passés (prévu vs fait), archivés au rollover.
 // Replié par défaut — c'est un rappel, pas le centre de l'écran. Cadrage VICTOIRES
 // (le ✓ se lit plus que le reste-à-faire) et créneaux cochables rétroactivement.
@@ -1146,10 +1388,12 @@ function HistorySection({
   history,
   objectives,
   onToggle,
+  hideHeader,
 }: {
   history: DayLog[];
   objectives: Objective[];
   onToggle: (day: string, index: number) => void;
+  hideHeader?: boolean;
 }) {
   // Le jour ouvert pour cocher rétroactivement (par défaut : le plus récent, le
   // plus utile). null = replié.
@@ -1249,37 +1493,45 @@ function HistorySection({
 
   return (
     <section className="animate-rise rounded-2xl border border-line bg-surface/60 p-4 shadow-sm sm:p-5">
-      {/* En-tête : le compteur de victoires en gros (dopamine), la série en pastille. */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.15em] text-faint">
-            Ce que tu as fait
-          </p>
-          <p className="mt-1 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-semibold leading-none text-cap">
-              {totalDone + trophies.length}
+      {/* En-tête : le compteur de victoires en gros (dopamine), la série en
+          pastille. Masqué quand la vue Parcours porte déjà son propre total. */}
+      {!hideHeader && (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.15em] text-faint">
+              Ce que tu as fait
+            </p>
+            <p className="mt-1 flex items-baseline gap-2">
+              <span className="font-display text-3xl font-semibold leading-none text-cap">
+                {totalDone + trophies.length}
+              </span>
+              <span className="text-sm text-muted">
+                victoire{totalDone + trophies.length > 1 ? "s" : ""}
+                {trophies.length > 0 && (
+                  <>
+                    {" "}
+                    · {trophies.length} jalon{trophies.length > 1 ? "s" : ""} franchi
+                    {trophies.length > 1 ? "s" : ""}
+                  </>
+                )}
+              </span>
+            </p>
+          </div>
+          {streak >= 2 && (
+            <span
+              className="flex shrink-0 items-center gap-1 rounded-full bg-gold-soft px-3 py-1.5 text-sm font-semibold text-gold"
+              title="jours d'affilée avec au moins une victoire"
+            >
+              🔥 {streak} j
             </span>
-            <span className="text-sm text-muted">
-              victoire{totalDone + trophies.length > 1 ? "s" : ""}
-              {trophies.length > 0 && (
-                <>
-                  {" "}
-                  · {trophies.length} jalon{trophies.length > 1 ? "s" : ""} franchi
-                  {trophies.length > 1 ? "s" : ""}
-                </>
-              )}
-            </span>
-          </p>
+          )}
         </div>
-        {streak >= 2 && (
-          <span
-            className="flex shrink-0 items-center gap-1 rounded-full bg-gold-soft px-3 py-1.5 text-sm font-semibold text-gold"
-            title="jours d'affilée avec au moins une victoire"
-          >
-            🔥 {streak} j
-          </span>
-        )}
-      </div>
+      )}
+      {hideHeader && (
+        <p className="text-xs uppercase tracking-[0.15em] text-faint">
+          Tes derniers jours
+        </p>
+      )}
 
       {/* Le mur des jours : une tuile FIXE par jour (façon tracker), qui se
           remplit vers la droite. Plus la journée est pleine, plus ça brille.
