@@ -357,7 +357,10 @@ export default function Home() {
                 />
               )}
               {state.understanding?.trim() && (
-                <UnderstandingSection text={state.understanding.trim()} />
+                <UnderstandingSection
+                  text={state.understanding.trim()}
+                  onSave={(t) => save({ ...state, understanding: t })}
+                />
               )}
               {state.history && state.history.length > 0 && (
                 <HistorySection history={state.history} />
@@ -1023,9 +1026,19 @@ function HistorySection({ history }: { history: DayLog[] }) {
 }
 
 // Ce que Cap a retenu de toi (goûts, leviers, ce qui te booste / à éviter,
-// rythmes) : un miroir lisible de `understanding`, pour voir ce dont il se sert.
-function UnderstandingSection({ text }: { text: string }) {
+// rythmes) : miroir de `understanding`, ÉDITABLE — tu corriges ou effaces ce qui
+// est faux ou gênant, et le coach s'en tiendra à ta version.
+function UnderstandingSection({
+  text,
+  onSave,
+}: {
+  text: string;
+  onSave: (t: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+
   return (
     <div className="mt-8">
       <button
@@ -1035,11 +1048,53 @@ function UnderstandingSection({ text }: { text: string }) {
         <span className="text-[0.7rem]">{open ? "▾" : "▸"}</span>
         Ce que Cap sait de toi
       </button>
-      {open && (
-        <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted">
-          {text}
-        </p>
-      )}
+      {open &&
+        (editing ? (
+          <div className="mt-3">
+            <textarea
+              value={draft}
+              autoFocus
+              onChange={(e) => setDraft(e.target.value)}
+              rows={7}
+              className="w-full resize-y rounded-xl border border-line bg-surface p-3 text-sm leading-relaxed text-ink focus:outline-none focus:ring-1 focus:ring-cap/40"
+            />
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => {
+                  onSave(draft.trim());
+                  setEditing(false);
+                }}
+                className="rounded-full bg-ink px-4 py-1.5 text-xs font-medium text-canvas"
+              >
+                Enregistrer
+              </button>
+              <button
+                onClick={() => {
+                  setDraft(text);
+                  setEditing(false);
+                }}
+                className="rounded-full px-3 py-1.5 text-xs text-faint hover:text-ink"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">
+              {text}
+            </p>
+            <button
+              onClick={() => {
+                setDraft(text);
+                setEditing(true);
+              }}
+              className="mt-2 text-xs text-faint underline decoration-dotted transition-colors hover:text-cap-ink"
+            >
+              Modifier ce que Cap retient
+            </button>
+          </div>
+        ))}
     </div>
   );
 }
