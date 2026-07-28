@@ -17,7 +17,6 @@ import { capColor, deadlineChip, momentumLabel } from "./CapTrack";
 
 const LABEL_W = 210;
 const WEEK_W = 52;
-const ROW_H = 34;
 const HEADER_H = 46;
 const MONTHS = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -83,7 +82,7 @@ export default function Carte(props: CarteProps) {
             Chemins
           </ModeTab>
           <ModeTab active={mode === "semaines"} onClick={() => setMode("semaines")}>
-            Semaines
+            Frise
           </ModeTab>
         </div>
       </div>
@@ -1146,36 +1145,14 @@ function AutoInput({ onCommit }: { onCommit: (v: string) => void }) {
   );
 }
 
-// ═════════════════════ NIVEAU 2 : SEMAINES (projection) ═══════════════════
-// La frise projette la SÉQUENCE DES ÉTAPES (les jalons sont séquentiels par
-// nature) : le jalon courant « maintenant », les suivants déroulés devant, pour
-// se projeter et sentir l'enjeu d'aujourd'hui. Estimations LARGES (≈ 1 semaine
-// par étape si le phasage n'est pas posé), jamais des dates. Les flux (continus)
-// ne sont PAS mis en barres — ça mentirait sur leur nature : rappelés en légende.
+// ═════════════ NIVEAU 2 : LA FRISE (passé ← maintenant → futur) ════════════
+// Une LIGNE par cap à travers le temps : à gauche le fait (plein ●, daté quand
+// on l'a), une ligne « maintenant », à droite les jalons restants (○, pointillé)
+// vers la cible (☆) posée à l'horizon. On se SITUE et on se PROJETTE d'un coup.
+// On assume l'estimation (l'app sert à FAIRE AVANCER), cadrée « défi » et jamais
+// dette : à droite = intentions, si ça glisse on recale.
 
-interface StepBar {
-  id: string;
-  title: string;
-  fromWeek: number;
-  toWeek: number;
-  current: boolean; // le prochain jalon à franchir
-}
-
-// Projette les étapes NON franchies en séquence. Honore le phasage explicite
-// (fromWeek/toWeek) s'il est posé, sinon déroule ~1 semaine chacune depuis
-// « cette semaine » (0). Les jalons franchis sont derrière : pas sur la frise.
-function projectSteps(o: Objective): StepBar[] {
-  const undone = (o.steps ?? []).filter((s) => !s.done);
-  const bars: StepBar[] = [];
-  let cursor = 0;
-  undone.forEach((s, i) => {
-    const from = s.fromWeek ?? cursor;
-    const to = Math.max(from, s.toWeek ?? from);
-    bars.push({ id: s.id, title: s.title, fromWeek: from, toWeek: to, current: i === 0 });
-    cursor = to + 1;
-  });
-  return bars;
-}
+const LANE_H = 56;
 
 function activeFlowTitles(o: Objective): string[] {
   return (o.flows ?? [])
@@ -1186,9 +1163,77 @@ function activeFlowTitles(o: Objective): string[] {
 function mondayOfThisWeek(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  const day = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - day);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d;
+}
+
+// Offset en semaines (signé) entre le lundi d'une date et cette semaine.
+function weekOffset(dateIso: string, monday: Date): number {
+  const d = new Date(dateIso);
+  if (Number.isNaN(d.getTime())) return 0;
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return Math.round((d.getTime() - monday.getTime()) / (7 * 86_400_000));
+}
+
+type Mark = {
+  id: string;
+  title: string;
+  kind: "done" | "next" | "todo";
+  offset: number;
+};
+
+interface Lane {
+  o: Objective;
+  color: string;
+  marks: Mark[];
+  targetOffset: number;
+  targetLabel: string;
+  flows: string[];
+  done: number;
+  total: number;
+}
+
+function buildLane(o: Objective, color: string, monday: Date): Lane {
+  const steps = o.steps ?? [];
+  const doneSteps = steps.filter((s) => s.done);
+  const undone = steps.filter((s) => !s.done);
+  const marks: Mark[] = [];
+
+  // Passé : daté si on a doneAt, sinon rangé juste derrière « maintenant ».
+  doneSteps.forEach((s, i) => {
+    const offset = s.doneAt
+      ? Math.min(-1, weekOffset(s.doneAt, monday))
+      : -(doneSteps.length - i);
+    marks.push({ id: s.id, title: s.title, kind: "done", offset });
+  });
+
+  // Futur : phasage explicite si posé, sinon ~1 semaine chacune depuis maintenant.
+  let cursor = 0;
+  undone.forEach((s, i) => {
+    const offset = s.fromWeek ?? cursor;
+    cursor = Math.max(offset, s.toWeek ?? offset) + 1;
+    marks.push({ id: s.id, title: s.title, kind: i === 0 ? "next" : "todo", offset });
+  });
+
+  // La cible : à l'horizon daté si dispo, sinon juste après le dernier jalon.
+  const futureOffs = marks.filter((m) => m.kind !== "done").map((m) => m.offset);
+  const lastFuture = futureOffs.length ? Math.max(...futureOffs) : 0;
+  const targetOffset = o.deadline
+    ? Math.max(lastFuture + 1, weekOffset(o.deadline, monday))
+    : lastFuture + 1;
+  const targetLabel = o.horizon || o.target || o.unlocks || "ta cible";
+
+  return {
+    o,
+    color,
+    marks,
+    targetOffset,
+    targetLabel,
+    flows: activeFlowTitles(o),
+    done: doneSteps.length,
+    total: steps.length,
+  };
 }
 
 function TimelineView({
@@ -1198,22 +1243,20 @@ function TimelineView({
   onUpdateObjective,
   colorOf,
 }: CarteProps & { colorOf: (id: string) => string }) {
-  const groups = objectives.map((o) => ({
-    o,
-    color: colorOf(o.id),
-    steps: projectSteps(o),
-    flows: activeFlowTitles(o),
-  }));
-
-  const allBars = groups.flatMap((g) => g.steps);
-  const maxTo = Math.max(4, ...allBars.map((b) => b.toWeek));
-  const N = Math.min(16, Math.max(8, maxTo + 2));
-
   const monday = mondayOfThisWeek();
+  const lanes = objectives.map((o) => buildLane(o, colorOf(o.id), monday));
+
+  const offs = lanes.flatMap((l) => [...l.marks.map((m) => m.offset), l.targetOffset]);
+  const minOff = Math.min(0, ...offs) - 1;
+  const maxOff = Math.max(2, ...offs) + 1;
+  const N = maxOff - minOff + 1;
+  const x = (offset: number) => LABEL_W + (offset - minOff) * WEEK_W;
+  const trackW = N * WEEK_W;
+
   const weeks = Array.from({ length: N }, (_, i) => {
     const ws = new Date(monday);
-    ws.setDate(monday.getDate() + i * 7);
-    return { i, month: ws.getMonth(), som: Math.floor((ws.getDate() - 1) / 7) + 1 };
+    ws.setDate(monday.getDate() + (minOff + i) * 7);
+    return { i, month: ws.getMonth() };
   });
   const monthGroups: { month: number; start: number; span: number }[] = [];
   for (const w of weeks) {
@@ -1221,46 +1264,36 @@ function TimelineView({
     if (last && last.month === w.month) last.span++;
     else monthGroups.push({ month: w.month, start: w.i, span: 1 });
   }
-  const trackW = N * WEEK_W;
 
   return (
     <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6">
       <div className="-mx-1 overflow-x-auto pb-2">
         <div className="relative" style={{ minWidth: LABEL_W + trackW }}>
-          {/* Lignes verticales de mois */}
-          {monthGroups.map((g, i) =>
-            i === 0 ? null : (
-              <div
-                key={`gl${i}`}
-                className="pointer-events-none absolute"
-                style={{
-                  left: LABEL_W + g.start * WEEK_W,
-                  top: HEADER_H,
-                  bottom: 4,
-                  width: 1,
-                  background: "var(--color-line)",
-                }}
-              />
-            ),
-          )}
-          {/* Bande « cette semaine » */}
+          {/* Bande + ligne « maintenant » — l'ancre du regard. */}
           <div
             className="pointer-events-none absolute rounded-md"
             style={{
-              left: LABEL_W, width: WEEK_W, top: HEADER_H, bottom: 4,
-              background: "var(--color-cap-soft)", opacity: 0.35,
+              left: x(0),
+              width: WEEK_W,
+              top: HEADER_H,
+              bottom: 4,
+              background: "var(--color-cap-soft)",
+              opacity: 0.4,
             }}
           />
+          <div
+            className="pointer-events-none absolute"
+            style={{ left: x(0), top: HEADER_H - 16, bottom: 4, width: 2, background: "var(--color-cap)", opacity: 0.5 }}
+          />
 
-          {/* En-tête mois + semaines */}
           <div className="flex" style={{ height: HEADER_H }}>
             <div
               className="flex items-end pb-1.5 text-[0.7rem] uppercase tracking-[0.15em] text-faint"
               style={{ width: LABEL_W }}
             >
-              Ta carte
+              Tes caps dans le temps
             </div>
-            <div className="flex-1">
+            <div className="relative flex-1">
               <div className="flex" style={{ height: 22 }}>
                 {monthGroups.map((g, i) => (
                   <div
@@ -1272,207 +1305,154 @@ function TimelineView({
                   </div>
                 ))}
               </div>
-              <div className="flex">
-                {weeks.map((w) => (
-                  <div
-                    key={w.i}
-                    className={`border-l text-center text-[0.62rem] ${
-                      w.i === 0 ? "border-line font-semibold text-cap-ink" : "border-line/50 text-faint"
-                    }`}
-                    style={{ width: WEEK_W }}
-                  >
-                    S{w.som}
-                  </div>
-                ))}
+              <div
+                className="absolute bottom-1 text-[0.6rem] font-semibold uppercase text-cap-ink"
+                style={{ left: x(0) - LABEL_W }}
+              >
+                maintenant
               </div>
             </div>
           </div>
 
-          {/* Un groupe par objectif */}
-          {groups.map(({ o, color, steps, flows }) => (
-            <ObjectiveGroup
-              key={o.id}
-              o={o}
-              color={color}
-              steps={steps}
-              flows={flows}
-              N={N}
+          {lanes.map((l) => (
+            <FriseLane
+              key={l.o.id}
+              lane={l}
+              x={x}
               onOpen={onOpen}
-              onDelete={onDeleteCap ? () => onDeleteCap(o.id) : undefined}
+              onDelete={onDeleteCap ? () => onDeleteCap(l.o.id) : undefined}
               onEditTitle={
                 onUpdateObjective
-                  ? (t) => onUpdateObjective(o.id, (p) => ({ ...p, title: t }))
+                  ? (t) => onUpdateObjective(l.o.id, (p) => ({ ...p, title: t }))
                   : undefined
               }
             />
           ))}
         </div>
       </div>
+      <p className="mt-3 px-1 text-[0.7rem] leading-relaxed text-faint">
+        ● fait · ◉ le prochain · ○ à venir · ☆ ta cible à l&apos;horizon. À droite
+        = des intentions, pas des dates dures — si ça glisse, on recale.
+      </p>
     </div>
   );
 }
 
-function ObjectiveGroup({
-  o,
-  color,
-  steps,
-  flows,
-  N,
+function FriseLane({
+  lane,
+  x,
   onOpen,
   onDelete,
   onEditTitle,
 }: {
-  o: Objective;
-  color: string;
-  steps: StepBar[];
-  flows: string[];
-  N: number;
+  lane: Lane;
+  x: (o: number) => number;
   onOpen: () => void;
   onDelete?: () => void;
-  onEditTitle?: (title: string) => void;
+  onEditTitle?: (t: string) => void;
 }) {
-  const chip = deadlineChip(o);
-  const momentum = momentumLabel(o);
-  const asleep = momentum?.startsWith("dort");
-
-  const allSteps = o.steps ?? [];
-  const total = allSteps.length;
-  const doneCount = allSteps.filter((s) => s.done).length;
+  const { o, color, marks, targetOffset, targetLabel, flows, done, total } = lane;
+  const doneMarks = marks.filter((m) => m.kind === "done");
+  const pastStart = doneMarks.length ? Math.min(...doneMarks.map((m) => m.offset)) : 0;
 
   return (
-    <div className="group mt-5 border-t border-line/70 pt-3 first:mt-2 first:border-t-0">
-      {/* En-tête de l'objectif — posé AU-DESSUS des lignes de mois (z-10 +
-          fond), sinon les lignes le traversent. */}
-      <div className="relative z-10 mb-1.5 flex items-center gap-2.5 bg-surface">
+    <div className="group border-t border-line/70 pb-2 pt-2 first:border-t-0">
+      <div className="relative z-10 mb-1 flex items-center gap-2.5" style={{ width: LABEL_W }}>
         <span className="text-base leading-none">{o.icon ?? "◆"}</span>
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
         <InlineEdit
           value={o.title}
           onChange={onEditTitle}
-          className="font-display text-base font-medium text-ink"
-          inputClassName="font-display text-base font-medium text-ink border-b border-cap/40 w-64"
+          className="truncate font-display text-sm font-medium text-ink"
+          inputClassName="font-display text-sm font-medium text-ink border-b border-cap/40 w-44"
         />
-        <span className="ml-auto flex shrink-0 items-center gap-2">
-          {total > 0 && (
-            <span
-              className="rounded-full bg-sink px-2 py-0.5 text-[0.68rem] font-medium text-muted"
-              title="jalons franchis"
-            >
-              {doneCount}/{total} jalons
-            </span>
-          )}
-          {o.target ? (
-            <span
-              className="max-w-[10rem] truncate rounded-full bg-sink px-2 py-0.5 text-[0.68rem] text-muted"
-              title={`cible : ${o.target}`}
-            >
-              🎯 {o.target}
-            </span>
-          ) : (
-            <button
-              onClick={onOpen}
-              className="text-[0.68rem] text-faint underline decoration-dotted hover:text-cap-ink"
-            >
-              cible à définir
-            </button>
-          )}
-          {asleep ? (
-            <span className="rounded-full bg-gold-soft px-2 py-0.5 text-[0.68rem] text-gold">
-              {momentum}
-            </span>
-          ) : chip ? (
-            <span
-              className={`rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${
-                chip.urgent ? "bg-cap-soft text-cap-ink" : "bg-sink text-muted"
-              }`}
-            >
-              {chip.label}
-            </span>
-          ) : null}
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              className="opacity-0 transition-opacity group-hover:opacity-100 rounded px-1 text-base leading-none text-faint hover:text-red-400"
-              title="Supprimer ce cap"
-            >
-              ×
-            </button>
-          )}
-        </span>
+        {total > 0 && (
+          <span className="ml-auto shrink-0 text-[0.68rem] font-semibold" style={{ color }}>
+            {done}/{total}
+          </span>
+        )}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            className="shrink-0 px-1 text-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+            title="Supprimer ce cap"
+          >
+            ×
+          </button>
+        )}
       </div>
 
-      {/* La projection des jalons : le courant « maintenant », les suivants devant. */}
-      {steps.length === 0 ? (
-        total > 0 ? (
-          <p className="pl-1 text-xs italic text-faint">
-            tous les jalons sont franchis ✓
-          </p>
-        ) : (
-          <p className="pl-1 text-xs italic text-faint">
-            à cartographier —{" "}
-            <button
-              onClick={onOpen}
-              className="underline decoration-dotted hover:text-cap-ink"
-            >
-              parles-en avec Cap
-            </button>
-          </p>
-        )
-      ) : (
-        steps.map((b) => <StepRow key={b.id} bar={b} N={N} color={color} />)
-      )}
+      <div className="relative" style={{ height: LANE_H }}>
+        {/* passé plein */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 rounded-full"
+          style={{ left: x(pastStart), width: Math.max(0, x(0) - x(pastStart)), height: 3, background: color, opacity: 0.55 }}
+        />
+        {/* futur pointillé */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2"
+          style={{ left: x(0), width: Math.max(0, x(targetOffset) - x(0)), height: 0, borderTop: `2px dashed ${color}`, opacity: 0.5 }}
+        />
 
-      {/* Le moteur (flux continus) en légende — pas en barres : un flux est un
-          débit, pas une période ; le mettre en Gantt mentirait sur sa nature. */}
+        {marks.map((m) => (
+          <div
+            key={m.id}
+            title={m.title}
+            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+            style={{ left: x(m.offset), zIndex: 2 }}
+          >
+            {m.kind === "done" ? (
+              <span className="block h-3.5 w-3.5 rounded-full" style={{ background: color }} />
+            ) : m.kind === "next" ? (
+              <span className="relative flex h-5 w-5 items-center justify-center">
+                <span className="absolute inline-flex h-5 w-5 rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
+                <span className="relative h-4 w-4 rounded-full border-2 bg-surface" style={{ borderColor: color }} />
+              </span>
+            ) : (
+              <span className="block h-3 w-3 rounded-full border-2 bg-surface" style={{ borderColor: color, opacity: 0.6 }} />
+            )}
+            {m.kind === "next" && (
+              <span className="absolute left-1/2 top-5 w-28 -translate-x-1/2 truncate text-center text-[0.62rem] font-medium text-ink">
+                {m.title}
+              </span>
+            )}
+          </div>
+        ))}
+
+        {/* cible */}
+        <div
+          className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+          style={{ left: x(targetOffset), zIndex: 2 }}
+          title={o.target ? `cible : ${o.target}` : targetLabel}
+        >
+          <span
+            className="flex h-5 w-5 items-center justify-center rounded-full border-2 bg-surface text-[0.7rem]"
+            style={{ borderColor: color, color }}
+          >
+            ☆
+          </span>
+          <span
+            className="absolute left-1/2 top-5 w-24 -translate-x-1/2 truncate text-center text-[0.6rem]"
+            style={{ color }}
+          >
+            {targetLabel}
+          </span>
+        </div>
+      </div>
+
       {flows.length > 0 && (
-        <p className="mt-1.5 pl-1 text-[0.7rem] text-faint">
-          <span className="text-muted">moteur en continu&nbsp;:</span>{" "}
-          {flows.join(" · ")}
+        <p className="pl-1 text-[0.7rem] text-faint">
+          <span style={{ color }}>⚙ moteur</span> : {flows.join(" · ")}{" "}
+          <span>— continue →</span>
         </p>
       )}
-    </div>
-  );
-}
-
-// Une ligne de la projection : le libellé du jalon (le courant marqué ◉) et sa
-// barre sur la frise. Le jalon courant est plus appuyé, les suivants estompés.
-function StepRow({
-  bar,
-  N,
-  color,
-}: {
-  bar: StepBar;
-  N: number;
-  color: string;
-}) {
-  const left = bar.fromWeek * WEEK_W;
-  const width = Math.max(WEEK_W, (bar.toWeek - bar.fromWeek + 1) * WEEK_W) - 6;
-
-  return (
-    <div className="flex items-center" style={{ height: ROW_H }}>
-      <div
-        className="truncate pl-1 pr-3 text-xs"
-        style={{ width: LABEL_W }}
-        title={bar.title}
-      >
-        <span className={bar.current ? "font-medium text-ink" : "text-muted"}>
-          {bar.current && <span className="mr-1 text-cap">◉</span>}
-          {bar.title}
-        </span>
-      </div>
-      <div className="relative" style={{ width: N * WEEK_W, height: "100%" }}>
-        <div
-          className="absolute top-1/2 rounded-full"
-          style={{
-            left: left + 3,
-            width,
-            height: 10,
-            transform: "translateY(-50%)",
-            background: color,
-            opacity: bar.current ? 0.55 : 0.28,
-          }}
-        />
-      </div>
+      {total === 0 && (
+        <p className="pl-1 text-xs italic text-faint">
+          à cartographier —{" "}
+          <button onClick={onOpen} className="underline decoration-dotted hover:text-cap-ink">
+            parles-en avec Cap
+          </button>
+        </p>
+      )}
     </div>
   );
 }
