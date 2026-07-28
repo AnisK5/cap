@@ -1155,11 +1155,6 @@ function ParcoursView({
   state: CapState;
   onToggleHistory: (day: string, index: number) => void;
 }) {
-  const fmtDay = (day: string) =>
-    new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(
-      new Date(`${day}T00:00:00`),
-    );
-
   // Les JALONS franchis = les grosses victoires (cap-liées, colorées). Ordre
   // priorité des caps.
   const jalons: Jalon[] = [];
@@ -1172,24 +1167,39 @@ function ParcoursView({
         capTitle: o.title,
         capIcon: o.icon,
         color: capColor(state.objectives, o.id),
+        doneAt: s.doneAt,
       });
     }
   }
 
-  // Le MUR : chaque victoire = un vrai intitulé (le concret rend le volume
-  // crédible). Récents (historique, datés) d'abord, puis durable (weeklyLog).
+  // LE JOURNAL TEMPOREL : chaque victoire rangée dans SA semaine, les semaines
+  // groupées par MOIS. Le temps est la colonne vertébrale — on juge l'accompli
+  // au temps que ça a pris. Concret (vrais intitulés), jamais le non-fait.
+  const buckets = new Map<
+    string,
+    { week: string; tasks: string[]; jalons: Jalon[] }
+  >();
+  const bucket = (wk: string) =>
+    buckets.get(wk) ?? buckets.set(wk, { week: wk, tasks: [], jalons: [] }).get(wk)!;
+
   const histWeeks = new Set((state.history ?? []).map((l) => mondayIso(l.day)));
-  const wins: { title: string; when?: string }[] = [];
-  for (const log of [...(state.history ?? [])].reverse()) {
+  for (const log of state.history ?? []) {
     const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
-    for (const it of items) if (it.done) wins.push({ title: it.title, when: fmtDay(log.day) });
+    const wk = mondayIso(log.day);
+    for (const it of items) if (it.done) bucket(wk).tasks.push(it.title);
   }
-  for (const w of [...(state.weeklyLog ?? [])].reverse()) {
+  for (const w of state.weeklyLog ?? []) {
     if (histWeeks.has(w.week)) continue;
-    for (const t of w.items ?? []) wins.push({ title: t, when: `sem. du ${fmtDay(w.week)}` });
+    for (const t of w.items ?? []) bucket(w.week).tasks.push(t);
+  }
+  const undatedJalons: Jalon[] = [];
+  for (const j of jalons) {
+    if (j.doneAt) bucket(mondayIso(j.doneAt.slice(0, 10))).jalons.push(j);
+    else undatedJalons.push(j);
   }
 
-  const total = wins.length + jalons.length;
+  const taskTotal = [...buckets.values()].reduce((n, b) => n + b.tasks.length, 0);
+  const total = taskTotal + jalons.length;
 
   // Rien de VRAIMENT fait encore → invitation (jamais un « 0 » qui plombe).
   if (total === 0) {
@@ -1198,7 +1208,7 @@ function ParcoursView({
         <div className="animate-rise rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-14 text-center">
           <p className="mx-auto max-w-md font-display text-xl italic leading-relaxed text-muted">
             Ton parcours s&apos;écrit ici. Coche ta première victoire, franchis un
-            jalon — et tu verras la pile grandir, encore et encore.
+            jalon — et tu verras la pile grandir, semaine après semaine.
           </p>
         </div>
       </div>
@@ -1225,6 +1235,17 @@ function ParcoursView({
         : `${Math.round(days / 30)} mois`;
   }
 
+  // Semaines triées du plus récent au plus ancien, groupées par mois (AAAA-MM).
+  const weeksDesc = [...buckets.values()].sort((a, b) =>
+    a.week < b.week ? 1 : a.week > b.week ? -1 : 0,
+  );
+  const monthsMap = new Map<string, typeof weeksDesc>();
+  for (const wb of weeksDesc) {
+    const key = wb.week.slice(0, 7);
+    (monthsMap.get(key) ?? monthsMap.set(key, []).get(key)!).push(wb);
+  }
+  const months = [...monthsMap.entries()].map(([key, weeks]) => ({ key, weeks }));
+
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       {/* LE RECADRAGE : gros, chaud, adossé à la pile visible juste en dessous.
@@ -1250,9 +1271,7 @@ function ParcoursView({
         </p>
       </div>
 
-      {jalons.length > 0 && <TrophyShelf jalons={jalons} />}
-
-      {wins.length > 0 && <WinWall wins={wins} />}
+      <TimeJournal months={months} undatedJalons={undatedJalons} />
 
       <CapArcs objectives={state.objectives} />
 
@@ -1271,65 +1290,129 @@ function ParcoursView({
   );
 }
 
-// Le palmarès : les jalons franchis en trophées colorés (couleur du cap). Les
-// grosses victoires, mises en avant — la fierté, pas une note de bas de page.
-function TrophyShelf({ jalons }: { jalons: Jalon[] }) {
-  return (
-    <section className="animate-rise">
-      <p className="mb-3 text-xs uppercase tracking-[0.15em] text-faint">
-        🏆 Tes jalons franchis
-      </p>
-      <div className="grid gap-2.5 sm:grid-cols-2">
-        {jalons.map((j) => (
-          <div
-            key={j.key}
-            className="flex items-center gap-3 rounded-xl border border-line p-3 shadow-sm"
-            style={{
-              borderLeft: `4px solid ${j.color}`,
-              background: `color-mix(in srgb, ${j.color} 7%, var(--color-surface))`,
-            }}
-          >
-            <span
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm text-canvas"
-              style={{ background: j.color }}
-            >
-              ★
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-ink">{j.title}</p>
-              <p className="truncate text-xs text-faint">
-                {j.capIcon ? `${j.capIcon} ` : ""}
-                {j.capTitle}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
+// Le journal TEMPOREL : mois → semaines → tes vraies victoires. Le temps porte
+// tout (compteur par mois et par semaine = « voilà ce que ce mois/cette semaine
+// a produit »). Jalons en trophées colorés (★) ; créneaux en pastilles, agrégés
+// (« Sport ×3 ») pour rester crédible. Jamais le non-fait.
+function TimeJournal({
+  months,
+  undatedJalons,
+}: {
+  months: { key: string; weeks: { week: string; tasks: string[]; jalons: Jalon[] }[] }[];
+  undatedJalons: Jalon[];
+}) {
+  const nowMon = mondayIso(new Date().toISOString().slice(0, 10));
+  const weeksAgo = (wk: string) =>
+    Math.round(
+      (new Date(`${nowMon}T00:00:00`).getTime() -
+        new Date(`${wk}T00:00:00`).getTime()) /
+        (7 * 86_400_000),
+    );
+  const weekLabel = (wk: string) => {
+    const n = weeksAgo(wk);
+    if (n <= 0) return "Cette semaine";
+    if (n === 1) return "La semaine dernière";
+    return `Semaine du ${new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(new Date(`${wk}T00:00:00`))}`;
+  };
+  const monthLabel = (key: string) => {
+    const [y, m] = key.split("-").map(Number);
+    const now = new Date();
+    const opts: Intl.DateTimeFormatOptions =
+      y === now.getFullYear()
+        ? { month: "long" }
+        : { month: "long", year: "numeric" };
+    const s = new Intl.DateTimeFormat("fr-FR", opts).format(new Date(y, m - 1, 1));
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  const dedup = (titles: string[]) => {
+    const m = new Map<string, number>();
+    for (const t of titles) m.set(t, (m.get(t) ?? 0) + 1);
+    return [...m.entries()].map(([title, count]) => ({ title, count }));
+  };
 
-// Le mur : une pastille par VRAIE victoire (intitulé réel). La masse de concret
-// rend le volume indéniable ET crédible — « regarde tout ça ».
-function WinWall({ wins }: { wins: { title: string; when?: string }[] }) {
+  const StarChip = ({ j }: { j: Jalon }) => (
+    <span
+      title={`${j.title} · ${j.capTitle}`}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium text-canvas shadow-sm"
+      style={{ background: j.color }}
+    >
+      <span className="shrink-0">★</span>
+      <span className="truncate">{j.title}</span>
+    </span>
+  );
+
   return (
-    <section className="animate-rise">
-      <p className="mb-3 text-xs uppercase tracking-[0.15em] text-faint">
-        Tout ce que tu as fait
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {wins.map((w, i) => (
-          <span
-            key={i}
-            title={w.when ? `${w.title} — ${w.when}` : w.title}
-            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-cap/20 bg-cap-soft/50 px-3 py-1 text-sm text-cap-ink"
-          >
-            <span className="shrink-0 text-cap">✓</span>
-            <span className="truncate">{w.title}</span>
-          </span>
-        ))}
-      </div>
-    </section>
+    <div className="flex flex-col gap-9">
+      {months.map((mo) => {
+        const count = mo.weeks.reduce(
+          (n, w) => n + w.tasks.length + w.jalons.length,
+          0,
+        );
+        return (
+          <section key={mo.key} className="animate-rise">
+            <div className="mb-4 flex items-baseline gap-3 border-b border-line pb-2">
+              <h3 className="font-display text-2xl font-semibold text-ink">
+                {monthLabel(mo.key)}
+              </h3>
+              <span className="text-sm font-medium text-cap">
+                {count} victoire{count > 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="flex flex-col gap-5">
+              {mo.weeks.map((w) => {
+                const wc = w.tasks.length + w.jalons.length;
+                return (
+                  <div key={w.week}>
+                    <p className="mb-2 flex items-baseline gap-2">
+                      <span className="text-sm font-semibold text-ink">
+                        {weekLabel(w.week)}
+                      </span>
+                      <span className="text-xs text-faint">
+                        {wc} victoire{wc > 1 ? "s" : ""}
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {w.jalons.map((j) => (
+                        <StarChip key={j.key} j={j} />
+                      ))}
+                      {dedup(w.tasks).map((t) => (
+                        <span
+                          key={t.title}
+                          title={t.title}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-cap/20 bg-cap-soft/50 px-3 py-1 text-sm text-cap-ink"
+                        >
+                          <span className="shrink-0 text-cap">✓</span>
+                          <span className="truncate">{t.title}</span>
+                          {t.count > 1 && (
+                            <span className="shrink-0 text-faint">×{t.count}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+
+      {undatedJalons.length > 0 && (
+        <section className="animate-rise">
+          <div className="mb-4 flex items-baseline gap-3 border-b border-line pb-2">
+            <h3 className="font-display text-2xl font-semibold text-ink">Plus tôt</h3>
+            <span className="text-sm font-medium text-cap">
+              {undatedJalons.length} jalon{undatedJalons.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {undatedJalons.map((j) => (
+              <StarChip key={j.key} j={j} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -1343,6 +1426,7 @@ type Jalon = {
   capTitle: string;
   capIcon?: string;
   color: string;
+  doneAt?: string;
 };
 
 function WeeklyJournal({
