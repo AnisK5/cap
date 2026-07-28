@@ -1155,21 +1155,50 @@ function ParcoursView({
   state: CapState;
   onToggleHistory: (day: string, index: number) => void;
 }) {
-  const anyFranchised = state.objectives.some((o) =>
-    (o.steps ?? []).some((s) => s.done),
-  );
-  const hasAnything =
-    (state.history?.length ?? 0) > 0 ||
-    anyFranchised ||
-    (state.weeklyLog?.length ?? 0) > 0;
+  const fmtDay = (day: string) =>
+    new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(
+      new Date(`${day}T00:00:00`),
+    );
 
-  if (!hasAnything) {
+  // Les JALONS franchis = les grosses victoires (cap-liées, colorées). Ordre
+  // priorité des caps.
+  const jalons: Jalon[] = [];
+  for (const o of state.objectives) {
+    for (const s of o.steps ?? []) {
+      if (!s.done) continue;
+      jalons.push({
+        key: `${o.id}:${s.id}`,
+        title: s.title,
+        capTitle: o.title,
+        capIcon: o.icon,
+        color: capColor(state.objectives, o.id),
+      });
+    }
+  }
+
+  // Le MUR : chaque victoire = un vrai intitulé (le concret rend le volume
+  // crédible). Récents (historique, datés) d'abord, puis durable (weeklyLog).
+  const histWeeks = new Set((state.history ?? []).map((l) => mondayIso(l.day)));
+  const wins: { title: string; when?: string }[] = [];
+  for (const log of [...(state.history ?? [])].reverse()) {
+    const items = log.dayPlan?.length ? log.dayPlan : log.priorities;
+    for (const it of items) if (it.done) wins.push({ title: it.title, when: fmtDay(log.day) });
+  }
+  for (const w of [...(state.weeklyLog ?? [])].reverse()) {
+    if (histWeeks.has(w.week)) continue;
+    for (const t of w.items ?? []) wins.push({ title: t, when: `sem. du ${fmtDay(w.week)}` });
+  }
+
+  const total = wins.length + jalons.length;
+
+  // Rien de VRAIMENT fait encore → invitation (jamais un « 0 » qui plombe).
+  if (total === 0) {
     return (
       <div className="mx-auto max-w-2xl">
         <div className="animate-rise rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-14 text-center">
           <p className="mx-auto max-w-md font-display text-xl italic leading-relaxed text-muted">
             Ton parcours s&apos;écrit ici. Coche ta première victoire, franchis un
-            jalon — et tu verras la trace se construire, semaine après semaine.
+            jalon — et tu verras la pile grandir, encore et encore.
           </p>
         </div>
       </div>
@@ -1184,18 +1213,123 @@ function ParcoursView({
         new Date(start),
       )
     : null;
+  let durLabel: string | null = null;
+  if (start) {
+    const days = Math.max(
+      1,
+      Math.round((Date.now() - new Date(start).getTime()) / 86_400_000),
+    );
+    durLabel =
+      days < 60
+        ? `${Math.max(1, Math.round(days / 7))} semaine${days >= 11 ? "s" : ""}`
+        : `${Math.round(days / 30)} mois`;
+  }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      {/* En-tête sobre : pas de scoreboard — une phrase qui ancre la durée. */}
-      <p className="text-[1.05rem] leading-relaxed text-muted">
-        {fmtStart
-          ? `Depuis le ${fmtStart}, voilà tout ce qui est déjà derrière toi.`
-          : "Voilà tout ce qui est déjà derrière toi."}
-      </p>
+    <div className="mx-auto max-w-2xl space-y-8">
+      {/* LE RECADRAGE : gros, chaud, adossé à la pile visible juste en dessous.
+          Répond direct à la pensée « j'ai pas avancé ». */}
+      <div>
+        <p className="text-xs uppercase tracking-[0.15em] text-faint">
+          Ton parcours
+          {fmtStart ? ` · depuis le ${fmtStart}` : ""}
+          {durLabel ? ` · ${durLabel}` : ""}
+        </p>
+        <p className="mt-2 font-display text-3xl font-semibold leading-tight tracking-tight text-ink sm:text-4xl">
+          <span className="text-cap">{total}</span> victoire
+          {total > 1 ? "s" : ""} déjà derrière toi.
+        </p>
+        <p className="mt-1.5 text-base text-muted">
+          {jalons.length > 0 && (
+            <>
+              Dont {jalons.length} jalon{jalons.length > 1 ? "s" : ""} franchi
+              {jalons.length > 1 ? "s" : ""}.{" "}
+            </>
+          )}
+          «&nbsp;J&apos;ai pas avancé&nbsp;»… vraiment&nbsp;?
+        </p>
+      </div>
+
+      {jalons.length > 0 && <TrophyShelf jalons={jalons} />}
+
+      {wins.length > 0 && <WinWall wins={wins} />}
+
       <CapArcs objectives={state.objectives} />
-      <WeeklyJournal state={state} onToggleHistory={onToggleHistory} />
+
+      {/* Le détail jour par jour, en repli — c'est aussi là qu'on corrige un
+          oubli (rétro-coche). Fermé par défaut : la vue reste une fête. */}
+      <details className="group/detail">
+        <summary className="cursor-pointer list-none text-sm text-faint transition-colors hover:text-ink">
+          <span className="group-open/detail:hidden">▸ Voir jour par jour · corriger un oubli</span>
+          <span className="hidden group-open/detail:inline">▾ Replier le détail</span>
+        </summary>
+        <div className="mt-5">
+          <WeeklyJournal state={state} onToggleHistory={onToggleHistory} />
+        </div>
+      </details>
     </div>
+  );
+}
+
+// Le palmarès : les jalons franchis en trophées colorés (couleur du cap). Les
+// grosses victoires, mises en avant — la fierté, pas une note de bas de page.
+function TrophyShelf({ jalons }: { jalons: Jalon[] }) {
+  return (
+    <section className="animate-rise">
+      <p className="mb-3 text-xs uppercase tracking-[0.15em] text-faint">
+        🏆 Tes jalons franchis
+      </p>
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        {jalons.map((j) => (
+          <div
+            key={j.key}
+            className="flex items-center gap-3 rounded-xl border border-line p-3 shadow-sm"
+            style={{
+              borderLeft: `4px solid ${j.color}`,
+              background: `color-mix(in srgb, ${j.color} 7%, var(--color-surface))`,
+            }}
+          >
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm text-canvas"
+              style={{ background: j.color }}
+            >
+              ★
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-ink">{j.title}</p>
+              <p className="truncate text-xs text-faint">
+                {j.capIcon ? `${j.capIcon} ` : ""}
+                {j.capTitle}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Le mur : une pastille par VRAIE victoire (intitulé réel). La masse de concret
+// rend le volume indéniable ET crédible — « regarde tout ça ».
+function WinWall({ wins }: { wins: { title: string; when?: string }[] }) {
+  return (
+    <section className="animate-rise">
+      <p className="mb-3 text-xs uppercase tracking-[0.15em] text-faint">
+        Tout ce que tu as fait
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {wins.map((w, i) => (
+          <span
+            key={i}
+            title={w.when ? `${w.title} — ${w.when}` : w.title}
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-cap/20 bg-cap-soft/50 px-3 py-1 text-sm text-cap-ink"
+          >
+            <span className="shrink-0 text-cap">✓</span>
+            <span className="truncate">{w.title}</span>
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 
