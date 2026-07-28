@@ -49,6 +49,31 @@ describe("applyReconciliation — caps", () => {
     expect(next.objectives[0].title).toBe("Job product senior");
   });
 
+  it("capture le compteur (metric) + un relevé cumulé daté (progress)", () => {
+    const state = baseState([jobCap()]);
+    const next = applyReconciliation(state, {
+      objectives: [
+        { title: "Un job product", metric: { label: "candidatures", target: 30 }, progressTotal: 18 },
+      ],
+    });
+    const o = next.objectives[0];
+    expect(o.metric).toEqual({ label: "candidatures", target: 30 });
+    expect(o.progress).toHaveLength(1);
+    expect(o.progress![0].total).toBe(18);
+    // Un nouveau cumul plus tard = un 2e relevé (pas d'écrasement si autre valeur).
+    const after = applyReconciliation(next, {
+      objectives: [{ title: "Un job product", progressTotal: 30 }],
+    });
+    const p = after.objectives[0].progress!;
+    // même jour → le relevé du jour est remplacé (un point/jour), donc la valeur monte.
+    expect(p[p.length - 1].total).toBe(30);
+    // même total re-proposé = pas de doublon.
+    const same = applyReconciliation(after, {
+      objectives: [{ title: "Un job product", progressTotal: 30 }],
+    });
+    expect(same.objectives[0].progress).toEqual(after.objectives[0].progress);
+  });
+
   it("matche un titre existant sans sensibilité à la casse", () => {
     const state = baseState([jobCap()]);
     const r: Reconciliation = {

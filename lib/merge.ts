@@ -72,6 +72,10 @@ export interface Reconciliation {
     horizon?: string;
     unlocks?: string;
     moved?: boolean;
+    // Le compteur mesurable vers la cible (l'IA le pose : « candidatures », 30).
+    metric?: { label: string; target: number };
+    // Le CUMUL observé maintenant (« ~45 en tout ») → on le datera en snapshot.
+    progressTotal?: number;
     steps?: {
       title: string;
       done?: boolean;
@@ -197,6 +201,22 @@ function normalizeDate(d?: string | null): string | null | undefined {
 
 // Fusionne des caps proposés : match par previousTitle (renommage) puis par
 // titre ; crée sinon.
+// Ajoute un relevé cumulé daté (le concret sur l'axe temps). On ne double pas
+// un même total ; un relevé du même jour est remplacé (un point par jour). Cappé.
+function appendProgress(
+  prev: { at: string; total: number }[] | undefined,
+  total: number | undefined,
+  now: string,
+): { at: string; total: number }[] | undefined {
+  if (total === undefined || !Number.isFinite(total) || total < 0) return prev;
+  const arr = prev ?? [];
+  const last = arr[arr.length - 1];
+  if (last && last.total === total) return arr;
+  const today = now.slice(0, 10);
+  const base = last && last.at.slice(0, 10) === today ? arr.slice(0, -1) : arr;
+  return [...base, { at: now, total }].slice(-60);
+}
+
 function mergeObjectives(
   existing: Objective[],
   proposed: NonNullable<Reconciliation["objectives"]>,
@@ -212,12 +232,17 @@ function mergeObjectives(
       return (prevKey && t === prevKey) || t === key;
     });
     const deadline = normalizeDate(p.deadline);
+    const metric =
+      p.metric && p.metric.label?.trim() && Number.isFinite(p.metric.target)
+        ? { label: p.metric.label.trim(), target: p.metric.target }
+        : undefined;
     const common = {
       ...(deadline !== undefined ? { deadline } : {}),
       ...(p.icon?.trim() ? { icon: p.icon.trim() } : {}),
       ...(p.target ? { target: p.target.trim() } : {}),
       ...(p.horizon ? { horizon: p.horizon.trim() } : {}),
       ...(p.unlocks ? { unlocks: p.unlocks.trim() } : {}),
+      ...(metric ? { metric } : {}),
       ...(p.moved ? { lastMovedAt: now } : {}),
     };
     if (idx >= 0) {
@@ -227,14 +252,17 @@ function mergeObjectives(
       const flows = p.flows?.length
         ? mergeFlows(list[idx].flows, p.flows)
         : list[idx].flows;
+      const progress = appendProgress(list[idx].progress, p.progressTotal, now);
       list[idx] = {
         ...list[idx],
         title: p.title.trim(),
         ...common,
         ...(steps ? { steps } : {}),
         ...(flows ? { flows } : {}),
+        ...(progress ? { progress } : {}),
       };
     } else {
+      const progress = appendProgress(undefined, p.progressTotal, now);
       list = [
         ...list,
         {
@@ -245,6 +273,7 @@ function mergeObjectives(
           ...common,
           ...(p.steps?.length ? { steps: mergeSteps(undefined, p.steps) } : {}),
           ...(p.flows?.length ? { flows: mergeFlows(undefined, p.flows) } : {}),
+          ...(progress ? { progress } : {}),
         },
       ];
     }

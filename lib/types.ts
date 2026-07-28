@@ -60,6 +60,12 @@ export interface Objective {
   unlocks?: string; // la récompense : ce que ce cap débloque (le bout du chemin)
   steps?: Step[]; // ① le squelette séquentiel, dans l'ordre
   flows?: Flow[]; // ② les activités continues qui te poussent le long du squelette
+  // Le COMPTEUR mesurable vers la cible (« quelle grande étape chiffrée ? ») :
+  // l'IA le définit par objectif (ex. { label: "candidatures", target: 30 }).
+  metric?: { label: string; target: number };
+  // Relevés CUMULÉS datés — le concret qui se place sur l'axe temps (30 le 20/7,
+  // 60 le 27/7…). Le passé réel ; le futur se projette au rythme. Cappé.
+  progress?: { at: string; total: number }[];
   lastMovedAt?: string; // ISO : dernière fois que le cap a bougé (→ momentum)
   createdAt: string;
 }

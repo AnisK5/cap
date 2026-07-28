@@ -56,6 +56,10 @@ function renderState(state: CapState, timeZone?: string): string {
     const lines = state.objectives.map((o) => {
       const meta: string[] = [];
       if (o.target) meta.push(`cible : ${o.target}`);
+      if (o.metric) {
+        const cur = o.progress?.length ? o.progress[o.progress.length - 1].total : 0;
+        meta.push(`compteur : ${cur}/${o.metric.target} ${o.metric.label}`);
+      }
       if (o.horizon) meta.push(`horizon : ${o.horizon}`);
       if (o.lastMovedAt) {
         const n = -dayDiff(o.lastMovedAt, timeZone);
@@ -288,6 +292,9 @@ export function reconcileStateSummary(state: CapState): string {
           const bits = [
             o.deadline ? `échéance ${o.deadline.slice(0, 10)}` : "pas d'échéance",
             o.target ? `cible : ${o.target}` : null,
+            o.metric
+              ? `compteur : ${o.progress?.length ? o.progress[o.progress.length - 1].total : 0}/${o.metric.target} ${o.metric.label}`
+              : null,
             o.horizon ? `horizon : ${o.horizon}` : null,
             o.unlocks ? `ouvre : ${o.unlocks}` : null,
           ].filter(Boolean);
@@ -334,6 +341,7 @@ Règles :
 - TITRES COURTS ET SCANNABLES (lisibilité = ta responsabilité, comme les doublons) : un cap se nomme en 2-5 mots qu'on lit d'un coup d'œil (« Job product », « Écart », « Freelance avec Kamal »), JAMAIS une phrase. Le détail (le pourquoi, la définition, la nuance) va dans "understanding" ou "target", pas dans le titre. Idem étapes (2-5 mots) et flux (2-4 mots). Si un cap/flux/étape EXISTANT a un titre à rallonge (une phrase), RACCOURCIS-le : renvoie-le avec le titre court et, pour un cap, "previousTitle" = l'ancien titre exact (pour ne pas créer de doublon).
 - LOGIQUE ≠ AUJOURD'HUI : une quantité datée (« 8-10 boîtes ») est une TRANCHE d'un flux → elle va dans "priorities" (avec "via"), JAMAIS dans steps/flows.
 - steps : liste ORDONNÉE COMPLÈTE (3-5), "done" pour les franchies. Pas de dates ni de durées.
+- COMPTEUR MESURABLE ("metric") + CUMUL DATÉ ("progressTotal") : dès qu'un objectif se ramène à une quantité qui s'accumule vers un but (candidatures, personnes contactées, boîtes, diffusions…), pose "metric" = { label, target } (ex. « candidatures », 30). C'est TOI qui décides du bon découpage chiffré de l'objectif. Puis, chaque fois que la personne rapporte un chiffre RÉEL (« j'en ai envoyé ~15, ça fait 45 en tout »), renvoie "progressTotal" = le CUMUL atteint maintenant (45) — jamais l'incrément seul, jamais un chiffre inventé. C'est ce qui permet de placer le concret dans le temps et de projeter le rythme. N'en mets PAS pour un objectif purement à jalons (rien à compter) ni pour un rythme/rituel (pas de cible).
 - PHASAGE EN SEMAINES (fromWeek/toWeek) : quand la conversation évoque le « quand » (« le CV cette semaine et la prochaine, les candidatures ensuite »), place les chantiers sur la frise en offsets de semaines depuis cette semaine (0 = cette semaine). Estimations LARGES, jamais des dates. Ne l'invente pas si le phasage n'a pas été abordé.
 - VOIES : si un cap a plusieurs ROUTES distinctes vers le même but (ex. « job » vs « freelance » pour « un revenu qui nourrit les apps »), étiquette chaque chantier avec sa "voie". Sinon, omets.
 - LA JOURNÉE ("dayPlan") : dès que la conversation a posé la forme du jour (créneaux, ordre, deadlines du jour, habitudes placées), renseigne-la — la liste ORDONNÉE des créneaux, chacun avec son "dueBy" (granularité adaptée) et son "why" (l'enjeu d'aujourd'hui). Elle se met à jour EN CONTINU (le coach est un compagnon ouvert toute la journée, pas une session qu'on clôt) : à chaque échange qui la fait évoluer, renvoie la liste à jour. Si tu ne la fournis pas, la journée en cours est CONSERVÉE (ne l'écrase jamais avec du vide). Construis-la même à partir d'une seule priorité + les habitudes connues.
@@ -404,6 +412,21 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
               description: "échéance visée même souple (ex. « dans le mois »)",
             },
             unlocks: { type: "string", description: "la récompense au bout" },
+            metric: {
+              type: "object",
+              description:
+                "Le COMPTEUR mesurable vers la cible, quand l'objectif est chiffrable (« candidatures », « personnes contactées », « boîtes »). Pose-le dès que la conversation permet de le définir. Omettre pour un objectif à jalons purs (pas de quantité) ou un rythme.",
+              properties: {
+                label: { type: "string", description: "l'unité comptée (ex. « candidatures »)" },
+                target: { type: "number", description: "le nombre-cible (ex. 30)" },
+              },
+              required: ["label", "target"],
+            },
+            progressTotal: {
+              type: "number",
+              description:
+                "Le CUMUL atteint MAINTENANT sur ce compteur (ex. la personne dit « j'en ai envoyé ~15 aujourd'hui, ça fait 45 en tout » → 45). On le datera. Ne le fournis QUE si la conversation donne un chiffre réel — n'invente jamais.",
+            },
             moved: {
               type: "boolean",
               description: "true si le cap a concrètement avancé pendant la conversation",
