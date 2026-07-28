@@ -1152,8 +1152,6 @@ function AutoInput({ onCommit }: { onCommit: (v: string) => void }) {
 // On assume l'estimation (l'app sert à FAIRE AVANCER), cadrée « défi » et jamais
 // dette : à droite = intentions, si ça glisse on recale.
 
-const LANE_H = 86;
-
 function activeFlowTitles(o: Objective): string[] {
   return (o.flows ?? [])
     .filter((f) => !f.waitingOn && f.state !== "pause")
@@ -1243,9 +1241,12 @@ function TimelineView({
   onUpdateObjective,
   colorOf,
 }: CarteProps & { colorOf: (id: string) => string }) {
-  const [zoom, setZoom] = useState<"semaine" | "mois">("semaine");
-  const weekW = zoom === "semaine" ? 76 : 30;
-  const showLabels = zoom === "semaine";
+  const [zoom, setZoom] = useState<"jour" | "semaine" | "mois">("semaine");
+  const weekW = zoom === "jour" ? 150 : zoom === "semaine" ? 76 : 30;
+  // Fisheye : UN cap déplié à la fois (le détail), les autres en ligne fine.
+  const [expandedId, setExpandedId] = useState<string | null>(
+    objectives[0]?.id ?? null,
+  );
 
   const monday = mondayOfThisWeek();
   const lanes = objectives.map((o) => buildLane(o, colorOf(o.id), monday));
@@ -1273,7 +1274,7 @@ function TimelineView({
     <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6">
       <div className="mb-3 flex items-center justify-end">
         <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
-          {(["semaine", "mois"] as const).map((z) => (
+          {(["jour", "semaine", "mois"] as const).map((z) => (
             <button
               key={z}
               onClick={() => setZoom(z)}
@@ -1304,6 +1305,16 @@ function TimelineView({
             className="pointer-events-none absolute"
             style={{ left: x(0), top: HEADER_H - 16, bottom: 4, width: 2, background: "var(--color-cap)", opacity: 0.5 }}
           />
+          {/* Délimitations de mois — des repères verticaux nets. */}
+          {monthGroups.map((g, i) =>
+            i === 0 ? null : (
+              <div
+                key={`ml${i}`}
+                className="pointer-events-none absolute"
+                style={{ left: x(minOff + g.start), top: HEADER_H - 22, bottom: 4, width: 1, background: "var(--color-line)" }}
+              />
+            ),
+          )}
 
           <div className="flex" style={{ height: HEADER_H }}>
             <div
@@ -1338,7 +1349,10 @@ function TimelineView({
               key={l.o.id}
               lane={l}
               x={x}
-              showLabels={showLabels}
+              expanded={expandedId === l.o.id}
+              onToggle={() =>
+                setExpandedId((id) => (id === l.o.id ? null : l.o.id))
+              }
               onOpen={onOpen}
               onDelete={onDeleteCap ? () => onDeleteCap(l.o.id) : undefined}
               onEditTitle={
@@ -1361,14 +1375,16 @@ function TimelineView({
 function FriseLane({
   lane,
   x,
-  showLabels,
+  expanded,
+  onToggle,
   onOpen,
   onDelete,
   onEditTitle,
 }: {
   lane: Lane;
   x: (o: number) => number;
-  showLabels: boolean;
+  expanded: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   onDelete?: () => void;
   onEditTitle?: (t: string) => void;
@@ -1376,18 +1392,30 @@ function FriseLane({
   const { o, color, marks, targetOffset, targetLabel, flows, done, total } = lane;
   const doneMarks = marks.filter((m) => m.kind === "done");
   const pastStart = doneMarks.length ? Math.min(...doneMarks.map((m) => m.offset)) : 0;
-  const futureW = Math.max(0, x(targetOffset) - x(0));
-  const LINE_Y = 26; // la ligne du temps dans la lane ; labels dessous, moteur dessus
+
+  const LANE = expanded ? 92 : 32;
+  const LINE_Y = expanded ? 34 : 16;
+  const leftX = Math.min(x(pastStart), x(0));
+  const targetX = x(targetOffset);
+  const frac = total ? done / total : 0; // (jalons pour l'instant ; deviendra le moteur chiffré)
+  const fillX = leftX + frac * (targetX - leftX);
+  const futureW = Math.max(0, targetX - x(0));
 
   return (
-    <div className="group border-t border-line/70 pb-2 pt-2 first:border-t-0">
-      <div className="relative z-10 mb-1 flex items-center gap-2.5" style={{ width: LABEL_W }}>
+    <div className="group border-t border-line/70 pt-2 first:border-t-0" style={{ paddingBottom: 8 }}>
+      {/* En-tête cliquable — déplie/replie ce cap (fisheye : un seul en détail). */}
+      <div
+        className="relative z-10 mb-1 flex cursor-pointer items-center gap-2.5"
+        style={{ width: LABEL_W }}
+        onClick={onToggle}
+      >
+        <span className="text-[0.7rem] text-faint">{expanded ? "▾" : "▸"}</span>
         <span className="text-base leading-none">{o.icon ?? "◆"}</span>
         <InlineEdit
           value={o.title}
           onChange={onEditTitle}
-          className="truncate font-display text-sm font-medium text-ink"
-          inputClassName="font-display text-sm font-medium text-ink border-b border-cap/40 w-44"
+          className={`truncate font-display font-medium text-ink ${expanded ? "text-base" : "text-sm"}`}
+          inputClassName="font-display text-sm font-medium text-ink border-b border-cap/40 w-40"
         />
         {total > 0 && (
           <span className="ml-auto shrink-0 text-[0.68rem] font-semibold" style={{ color }}>
@@ -1396,7 +1424,10 @@ function FriseLane({
         )}
         {onDelete && (
           <button
-            onClick={onDelete}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
             className="shrink-0 px-1 text-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
             title="Supprimer ce cap"
           >
@@ -1405,28 +1436,29 @@ function FriseLane({
         )}
       </div>
 
-      <div className="relative" style={{ height: LANE_H }}>
-        {/* LE MOTEUR, posé SUR la portion future : c'est lui qui pousse vers la
-            cible (souvent le vrai progrès). Au-dessus de la ligne. */}
-        {flows.length > 0 && futureW > 40 && (
+      <div className="relative" style={{ height: LANE }}>
+        {/* LA JAUGE : une piste posée sur l'axe temps, remplie de gauche vers la
+            cible ☆. Le remplissage comparé à la ligne « maintenant » = es-tu
+            dans les temps (fill derrière = tu prends du retard). */}
+        <div
+          className="absolute rounded-full"
+          style={{ left: leftX, top: LINE_Y, width: Math.max(0, targetX - leftX), height: expanded ? 8 : 5, transform: "translateY(-50%)", background: `color-mix(in srgb, ${color} 14%, var(--color-surface))` }}
+        />
+        <div
+          className="absolute rounded-full transition-all"
+          style={{ left: leftX, top: LINE_Y, width: Math.max(0, fillX - leftX), height: expanded ? 8 : 5, transform: "translateY(-50%)", background: color, opacity: 0.85 }}
+        />
+
+        {/* Le moteur (déplié) — ce qui pousse vers la cible, sur la portion future. */}
+        {expanded && flows.length > 0 && futureW > 50 && (
           <div
             className="absolute -translate-x-1/2 truncate text-center text-[0.62rem] font-medium"
-            style={{ left: x(0) + futureW / 2, top: 2, width: Math.min(futureW - 8, 300), color }}
-            title={`moteur en continu : ${flows.join(" · ")}`}
+            style={{ left: x(0) + futureW / 2, top: LINE_Y - 22, width: Math.min(futureW - 8, 320), color }}
+            title={`moteur : ${flows.join(" · ")}`}
           >
             ⚙ {flows.join(" · ")} →
           </div>
         )}
-        {/* passé plein */}
-        <div
-          className="absolute rounded-full"
-          style={{ left: x(pastStart), top: LINE_Y, width: Math.max(0, x(0) - x(pastStart)), height: 3, transform: "translateY(-50%)", background: color, opacity: 0.55 }}
-        />
-        {/* futur pointillé (la trajectoire du moteur vers la cible) */}
-        <div
-          className="absolute"
-          style={{ left: x(0), top: LINE_Y, width: futureW, height: 0, borderTop: `2px dashed ${color}`, opacity: 0.55 }}
-        />
 
         {marks.map((m, i) => (
           <div
@@ -1436,28 +1468,21 @@ function FriseLane({
             style={{ left: x(m.offset), top: LINE_Y, zIndex: m.kind === "next" ? 3 : 2 }}
           >
             {m.kind === "done" ? (
-              <span className="block h-3.5 w-3.5 rounded-full" style={{ background: color }} />
+              <span className="block rounded-full" style={{ height: expanded ? 14 : 10, width: expanded ? 14 : 10, background: color }} />
             ) : m.kind === "next" ? (
-              <span className="relative flex h-6 w-6 items-center justify-center">
-                <span className="absolute inline-flex h-6 w-6 rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
-                <span className="relative h-5 w-5 rounded-full border-[3px] bg-surface" style={{ borderColor: color }} />
+              <span className="relative flex items-center justify-center" style={{ height: expanded ? 22 : 15, width: expanded ? 22 : 15 }}>
+                <span className="absolute inline-flex h-full w-full rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
+                <span className="relative rounded-full bg-surface" style={{ height: expanded ? 18 : 12, width: expanded ? 18 : 12, border: `3px solid ${color}` }} />
               </span>
             ) : (
-              <span className="block h-3 w-3 rounded-full border-2 bg-surface" style={{ borderColor: color, opacity: 0.6 }} />
+              <span className="block rounded-full bg-surface" style={{ height: expanded ? 12 : 9, width: expanded ? 12 : 9, border: `2px solid ${color}`, opacity: 0.6 }} />
             )}
-            {showLabels && (
-              // Étagé sur deux rangées (top-4 / top-9) pour que les libellés
-              // proches ne se chevauchent plus.
+            {expanded && (
               <span
                 className={`absolute left-1/2 w-[4.8rem] -translate-x-1/2 text-center text-[0.6rem] leading-tight ${
-                  i % 2 === 1 ? "top-9" : "top-4"
-                } ${
-                  m.kind === "next"
-                    ? "font-semibold text-ink"
-                    : m.kind === "done"
-                      ? "text-muted"
-                      : "text-faint"
+                  m.kind === "next" ? "font-semibold text-ink" : m.kind === "done" ? "text-muted" : "text-faint"
                 }`}
+                style={{ top: i % 2 === 1 ? 26 : 12 }}
               >
                 {m.title.length > 30 ? `${m.title.slice(0, 29)}…` : m.title}
               </span>
@@ -1465,30 +1490,30 @@ function FriseLane({
           </div>
         ))}
 
-        {/* cible */}
+        {/* cible ☆ */}
         <div
           className="absolute -translate-x-1/2 -translate-y-1/2"
-          style={{ left: x(targetOffset), top: LINE_Y, zIndex: 2 }}
+          style={{ left: targetX, top: LINE_Y, zIndex: 2 }}
           title={o.target ? `cible : ${o.target}` : targetLabel}
         >
           <span
-            className="flex h-5 w-5 items-center justify-center rounded-full border-2 bg-surface text-[0.7rem]"
-            style={{ borderColor: color, color }}
+            className="flex items-center justify-center rounded-full bg-surface"
+            style={{ height: expanded ? 22 : 15, width: expanded ? 22 : 15, border: `2px solid ${color}`, color, fontSize: expanded ? "0.8rem" : "0.6rem" }}
           >
             ☆
           </span>
-          {showLabels && (
+          {expanded && (
             <span
-              className="absolute left-1/2 top-3.5 w-[5rem] -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
-              style={{ color }}
+              className="absolute left-1/2 w-[5.5rem] -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
+              style={{ top: 14, color }}
             >
-              {targetLabel.length > 26 ? `${targetLabel.slice(0, 25)}…` : targetLabel}
+              {targetLabel.length > 28 ? `${targetLabel.slice(0, 27)}…` : targetLabel}
             </span>
           )}
         </div>
       </div>
 
-      {total === 0 && (
+      {expanded && total === 0 && (
         <p className="pl-1 text-xs italic text-faint">
           à cartographier —{" "}
           <button onClick={onOpen} className="underline decoration-dotted hover:text-cap-ink">
