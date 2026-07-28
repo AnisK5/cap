@@ -1649,9 +1649,11 @@ function TrajLine({
               }}
             />
             {expanded && (
+              // Les chiffres AU-DESSUS de la ligne (la cible est en dessous) —
+              // sinon, avec peu de points, tout se superpose.
               <span
                 className={`absolute left-1/2 -translate-x-1/2 text-center text-[0.62rem] ${isLast ? "font-bold text-ink" : "text-muted"}`}
-                style={{ top: 10 }}
+                style={{ bottom: 10 }}
               >
                 {p.total}
               </span>
