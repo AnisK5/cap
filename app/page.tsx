@@ -1634,10 +1634,12 @@ function WeeklyJournal({
   );
 }
 
-// LA MONTÉE des caps : une frise, une lane par cap. Chaque cap grimpe dans le
-// TEMPS vers sa cible (☆) — jalons plantés à leur date (★, les repères), ET
-// l'accumulation du MOTEUR (barres par période : le débit de boulot qui avance
-// l'objectif, souvent plus que les jalons). Tournée vers l'arrière, célébrante.
+// LA MONTÉE des caps : une lane par cap qui avance vers sa cible (☆). Les jalons
+// (points, plein = franchi) jalonnent la barre ; le remplissage = la distance
+// couverte vers l'objectif. Le MOTEUR (⚙, flux actifs + débit de la semaine) est
+// ce qui rapproche entre les jalons — souvent le vrai moteur (candidater…).
+// Pas d'axe temps tant qu'on n'a pas d'historique daté : ici c'est le RAPPROCHEMENT
+// de l'objectif qui parle, tout de suite.
 function CapTimeline({
   objectives,
   weeklyLog,
@@ -1645,225 +1647,96 @@ function CapTimeline({
   objectives: Objective[];
   weeklyLog?: WeekWins[];
 }) {
-  const [mode, setMode] = useState<"semaine" | "mois">("semaine");
-
   const caps = objectives.filter(
     (o) => (o.steps?.length ?? 0) > 0 || (o.flows?.length ?? 0) > 0,
   );
   if (caps.length === 0) return null;
 
-  // capId → semaine → débit moteur.
-  const engine = new Map<string, Map<string, number>>();
-  for (const w of weeklyLog ?? []) {
-    for (const c of w.capWins ?? []) {
-      const m = engine.get(c.capId) ?? engine.set(c.capId, new Map()).get(c.capId)!;
-      m.set(w.week, (m.get(w.week) ?? 0) + c.count);
-    }
-  }
-
-  // La fenêtre temporelle : du plus ancien signal (cap créé / jalon daté /
-  // semaine loggée) à maintenant.
-  const now = Date.now();
-  const cands: number[] = [];
-  for (const o of objectives) {
-    if (o.createdAt) cands.push(Date.parse(o.createdAt));
-    for (const s of o.steps ?? []) if (s.doneAt) cands.push(Date.parse(s.doneAt));
-  }
-  for (const w of weeklyLog ?? []) cands.push(Date.parse(`${w.week}T00:00:00`));
-  const startT = cands.length ? Math.min(...cands) : now - 21 * 864e5;
-  const span = Math.max(now - startT, 14 * 864e5);
-  const pos = (t: number) => Math.min(100, Math.max(0, ((t - startT) / span) * 100));
-
-  // Repères de mois (en-tête).
-  const months: { label: string; left: number }[] = [];
-  {
-    const d = new Date(startT);
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    while (d.getTime() <= now) {
-      const left = pos(Math.max(d.getTime(), startT));
-      if (left < 99)
-        months.push({
-          label: new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(d),
-          left,
-        });
-      d.setMonth(d.getMonth() + 1);
-    }
-  }
-
-  // Les seaux du moteur (par semaine ou par mois selon le zoom).
-  type Bucket = { center: number; widthPct: number; key: string };
-  const buckets: Bucket[] = [];
-  if (mode === "semaine") {
-    const w0 = new Date(
-      `${mondayIso(new Date(startT).toISOString().slice(0, 10))}T00:00:00`,
-    ).getTime();
-    for (let t = w0; t <= now; t += 7 * 864e5)
-      buckets.push({
-        center: t + 3.5 * 864e5,
-        widthPct: ((7 * 864e5) / span) * 100,
-        key: mondayIso(new Date(t).toISOString().slice(0, 10)),
-      });
-  } else {
-    const d = new Date(startT);
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    while (d.getTime() <= now) {
-      const nd = new Date(d);
-      nd.setMonth(nd.getMonth() + 1);
-      const a = Math.max(d.getTime(), startT);
-      const b = Math.min(nd.getTime(), now);
-      buckets.push({
-        center: (a + b) / 2,
-        widthPct: ((b - a) / span) * 100,
-        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-      });
-      d.setMonth(d.getMonth() + 1);
-    }
-  }
-  const engineCount = (capId: string, b: Bucket): number => {
-    const m = engine.get(capId);
-    if (!m) return 0;
-    if (mode === "semaine") return m.get(b.key) ?? 0;
-    let s = 0;
-    for (const [wk, c] of m) if (wk.slice(0, 7) === b.key) s += c;
-    return s;
-  };
-  let maxEngine = 1;
-  for (const o of caps)
-    for (const b of buckets) maxEngine = Math.max(maxEngine, engineCount(o.id, b));
+  const thisWeek = mondayIso(new Date().toISOString().slice(0, 10));
+  const engineThisWeek = (capId: string) =>
+    (weeklyLog ?? [])
+      .find((w) => w.week === thisWeek)
+      ?.capWins?.find((c) => c.capId === capId)?.count ?? 0;
 
   return (
     <section className="animate-rise rounded-2xl border border-line bg-surface/60 p-4 shadow-sm sm:p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs uppercase tracking-[0.15em] text-faint">
-          La montée de tes caps
-        </p>
-        <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs">
-          {(["semaine", "mois"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`rounded-full px-2.5 py-0.5 transition-colors ${
-                mode === m ? "bg-ink text-canvas" : "text-muted hover:text-ink"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex">
-        <div className="w-32 shrink-0 sm:w-36" />
-        <div className="relative h-4 flex-1">
-          {months.map((m, i) => (
-            <span
-              key={i}
-              className="absolute top-0 text-[0.6rem] uppercase tracking-wide text-faint"
-              style={{ left: `${m.left}%` }}
-            >
-              {m.label}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
+      <p className="mb-4 text-xs uppercase tracking-[0.15em] text-faint">
+        La montée de tes caps
+      </p>
+      <div className="flex flex-col gap-5">
         {caps.map((o) => {
           const color = capColor(objectives, o.id);
           const steps = o.steps ?? [];
           const total = steps.length;
           const done = steps.filter((s) => s.done).length;
+          const pct = total ? Math.round((done / total) * 100) : 0;
           const activeFlows = (o.flows ?? [])
             .filter((f) => !f.waitingOn && f.state !== "pause")
             .map((f) => f.title);
+          const ew = engineThisWeek(o.id);
           return (
-            <div key={o.id} className="flex items-stretch gap-3">
-              <div className="w-32 shrink-0 self-center sm:w-36">
-                <p className="truncate text-sm font-medium text-ink">
+            <div key={o.id}>
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-sm font-medium text-ink">
                   {o.icon && `${o.icon} `}
                   {o.title}
-                </p>
+                </span>
                 {total > 0 && (
-                  <p className="text-xs font-semibold" style={{ color }}>
-                    {done}/{total} jalons
-                  </p>
-                )}
-                {activeFlows.length > 0 && (
-                  <p className="truncate text-[0.65rem] text-faint">
-                    ⚙ {activeFlows.join(" · ")}
-                  </p>
+                  <span
+                    className="shrink-0 text-xs font-semibold"
+                    style={{ color }}
+                  >
+                    {done}/{total} jalons · {pct}%
+                  </span>
                 )}
               </div>
-              <div
-                className="relative h-16 flex-1 rounded-lg"
-                style={{
-                  background: `color-mix(in srgb, ${color} 5%, var(--color-surface))`,
-                }}
-              >
-                {/* Le moteur : accumulation par période (le débit qui avance). */}
-                {buckets.map((b, i) => {
-                  const c = engineCount(o.id, b);
-                  if (!c) return null;
-                  const h = 6 + Math.round((c / maxEngine) * 34);
-                  return (
-                    <div
-                      key={i}
-                      title={`${c} au moteur`}
-                      className="absolute bottom-1.5 rounded-sm"
+
+              <div className="flex items-center gap-2.5">
+                <div className="relative h-2.5 flex-1 rounded-full bg-line">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full transition-all"
+                    style={{ width: `${Math.max(pct, done > 0 ? 4 : 0)}%`, background: color }}
+                  />
+                  {steps.map((s, i) => (
+                    <span
+                      key={s.id}
+                      title={`${s.title}${s.done ? " — franchi" : ""}`}
+                      className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
                       style={{
-                        left: `${pos(b.center)}%`,
-                        width: `max(3px, ${b.widthPct * 0.66}%)`,
-                        transform: "translateX(-50%)",
-                        height: h,
-                        background: color,
-                        opacity: 0.32,
+                        left: `${total ? ((i + 1) / total) * 100 : 0}%`,
+                        borderColor: color,
+                        background: s.done ? color : "var(--color-surface)",
                       }}
                     />
-                  );
-                })}
-                {/* Les jalons : repères plantés à leur date. */}
-                {steps
-                  .filter((s) => s.done)
-                  .map((s) => {
-                    const t = s.doneAt ? Date.parse(s.doneAt) : startT;
-                    return (
-                      <div
-                        key={s.id}
-                        title={s.title}
-                        className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                        style={{ left: `${pos(t)}%` }}
-                      >
-                        <span
-                          className="flex h-5 w-5 items-center justify-center rounded-full text-[0.62rem] text-canvas shadow-sm"
-                          style={{ background: color }}
-                        >
-                          ★
-                        </span>
-                      </div>
-                    );
-                  })}
-                {/* La cible : au bout du temps. */}
-                <div
-                  className="absolute right-1 top-1/2 z-10 -translate-y-1/2"
+                  ))}
+                </div>
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[0.7rem]"
+                  style={{ borderColor: color, color }}
                   title={o.target ? `cible : ${o.target}` : "la cible"}
                 >
-                  <span
-                    className="flex h-5 w-5 items-center justify-center rounded-full border-2 bg-surface text-[0.6rem]"
-                    style={{ borderColor: color, color }}
-                  >
-                    ☆
-                  </span>
-                </div>
+                  ☆
+                </span>
               </div>
+
+              {(activeFlows.length > 0 || ew > 0 || o.target) && (
+                <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-[0.7rem] text-faint">
+                  {activeFlows.length > 0 && (
+                    <span style={{ color }}>⚙ {activeFlows.join(" · ")}</span>
+                  )}
+                  {ew > 0 && <span>· {ew} au moteur cette semaine</span>}
+                  {o.target && (
+                    <span className="min-w-0 truncate">· ☆ {o.target}</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-      <p className="mt-3 text-[0.7rem] leading-relaxed text-faint">
-        ★ jalon franchi · barres = débit du moteur (candidatures, prospection…) ·
-        ☆ ta cible. Le moteur se remplit au fil des semaines.
+      <p className="mt-4 text-[0.7rem] leading-relaxed text-faint">
+        Chaque point = un jalon (plein = franchi) ; la barre = ta distance couverte
+        vers la cible ☆. Le moteur (⚙) te rapproche entre les jalons.
       </p>
     </section>
   );
