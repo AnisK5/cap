@@ -1181,6 +1181,20 @@ type Mark = {
   offset: number;
 };
 
+// La TRAJECTOIRE chiffrée d'un cap (quand il a un compteur + des relevés) :
+// les points réels (30, 60 posés à leur date), la cible, et la PROJECTION au
+// rythme réel → date estimée d'atteinte. C'est le concret d'Anis.
+interface Traj {
+  points: { offset: number; total: number }[]; // réels, triés dans le temps
+  target: number;
+  label: string;
+  ratePerWeek: number | null; // le rythme mesuré (null si < 2 points)
+  projTargetOffset: number | null; // offset projeté d'atteinte de la cible
+  reached: boolean;
+  etaLabel: string | null; // date estimée d'atteinte (« ~14 août »)
+  current: number; // le cumul actuel
+}
+
 interface Lane {
   o: Objective;
   color: string;
@@ -1190,6 +1204,43 @@ interface Lane {
   flows: string[];
   done: number;
   total: number;
+  traj?: Traj;
+}
+
+function buildTraj(o: Objective, monday: Date): Traj | undefined {
+  if (!o.metric || !o.progress?.length) return undefined;
+  const pts = o.progress
+    .map((p) => ({ offset: weekOffset(p.at, monday), total: p.total }))
+    .sort((a, b) => a.offset - b.offset);
+  const target = o.metric.target;
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  let ratePerWeek: number | null = null;
+  if (pts.length >= 2 && last.offset > first.offset) {
+    ratePerWeek = (last.total - first.total) / (last.offset - first.offset);
+  }
+  const reached = last.total >= target;
+  let projTargetOffset: number | null = null;
+  if (reached) projTargetOffset = last.offset;
+  else if (ratePerWeek && ratePerWeek > 0)
+    projTargetOffset = last.offset + (target - last.total) / ratePerWeek;
+  else if (o.deadline) projTargetOffset = weekOffset(o.deadline, monday);
+  let etaLabel: string | null = null;
+  if (projTargetOffset != null && !reached) {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + Math.round(projTargetOffset * 7));
+    etaLabel = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(d);
+  }
+  return {
+    points: pts,
+    target,
+    label: o.metric.label,
+    ratePerWeek,
+    projTargetOffset,
+    reached,
+    etaLabel,
+    current: last.total,
+  };
 }
 
 function buildLane(o: Objective, color: string, monday: Date): Lane {
@@ -1231,6 +1282,7 @@ function buildLane(o: Objective, color: string, monday: Date): Lane {
     flows: activeFlowTitles(o),
     done: doneSteps.length,
     total: steps.length,
+    traj: buildTraj(o, monday),
   };
 }
 
@@ -1251,7 +1303,12 @@ function TimelineView({
   const monday = mondayOfThisWeek();
   const lanes = objectives.map((o) => buildLane(o, colorOf(o.id), monday));
 
-  const offs = lanes.flatMap((l) => [...l.marks.map((m) => m.offset), l.targetOffset]);
+  const offs = lanes.flatMap((l) => [
+    ...l.marks.map((m) => m.offset),
+    l.targetOffset,
+    ...(l.traj ? l.traj.points.map((p) => p.offset) : []),
+    ...(l.traj?.projTargetOffset != null ? [l.traj.projTargetOffset] : []),
+  ]);
   const minOff = Math.min(0, ...offs) - 1;
   const maxOff = Math.max(2, ...offs) + 1;
   const N = maxOff - minOff + 1;
@@ -1365,8 +1422,10 @@ function TimelineView({
         </div>
       </div>
       <p className="mt-3 px-1 text-[0.7rem] leading-relaxed text-faint">
-        ● fait · ◉ le prochain · ○ à venir · ☆ ta cible à l&apos;horizon. À droite
-        = des intentions, pas des dates dures — si ça glisse, on recale.
+        Caps chiffrés : les points = ce que t&apos;as accumulé (30, 60…), le
+        pointillé = la projection à ton rythme, ★ la cible + date estimée. Caps à
+        jalons : ● fait · ◉ le prochain · ○ à venir · ☆ cible. À droite = des
+        intentions, pas des dates dures.
       </p>
     </div>
   );
@@ -1417,11 +1476,15 @@ function FriseLane({
           className={`truncate font-display font-medium text-ink ${expanded ? "text-base" : "text-sm"}`}
           inputClassName="font-display text-sm font-medium text-ink border-b border-cap/40 w-40"
         />
-        {total > 0 && (
+        {lane.traj ? (
+          <span className="ml-auto shrink-0 text-[0.68rem] font-semibold" style={{ color }}>
+            {lane.traj.current}/{lane.traj.target} {lane.traj.label}
+          </span>
+        ) : total > 0 ? (
           <span className="ml-auto shrink-0 text-[0.68rem] font-semibold" style={{ color }}>
             {done}/{total}
           </span>
-        )}
+        ) : null}
         {onDelete && (
           <button
             onClick={(e) => {
@@ -1437,6 +1500,10 @@ function FriseLane({
       </div>
 
       <div className="relative" style={{ height: LANE }}>
+        {lane.traj ? (
+          <TrajLine traj={lane.traj} x={x} color={color} expanded={expanded} lineY={LINE_Y} />
+        ) : (
+          <>
         {/* LA JAUGE : une piste posée sur l'axe temps, remplie de gauche vers la
             cible ☆. Le remplissage comparé à la ligne « maintenant » = es-tu
             dans les temps (fill derrière = tu prends du retard). */}
@@ -1511,9 +1578,11 @@ function FriseLane({
             </span>
           )}
         </div>
+          </>
+        )}
       </div>
 
-      {expanded && total === 0 && (
+      {expanded && total === 0 && !lane.traj && (
         <p className="pl-1 text-xs italic text-faint">
           à cartographier —{" "}
           <button onClick={onOpen} className="underline decoration-dotted hover:text-cap-ink">
@@ -1522,6 +1591,112 @@ function FriseLane({
         </p>
       )}
     </div>
+  );
+}
+
+// La COURBE de trajectoire sur la lane : les points réels chiffrés (30, 60…)
+// posés à leur date, reliés ; puis la PROJECTION au rythme (pointillé) jusqu'à
+// la cible ★, avec la date estimée. Le concret qui se place dans le temps.
+function TrajLine({
+  traj,
+  x,
+  color,
+  expanded,
+  lineY,
+}: {
+  traj: Traj;
+  x: (o: number) => number;
+  color: string;
+  expanded: boolean;
+  lineY: number;
+}) {
+  const pts = traj.points;
+  const firstX = x(pts[0].offset);
+  const lastX = x(pts[pts.length - 1].offset);
+  const projX = traj.projTargetOffset != null ? x(traj.projTargetOffset) : null;
+  const targetX = projX != null && projX > lastX ? projX : lastX + 24;
+  const dot = expanded ? 12 : 9;
+  return (
+    <>
+      {pts.length > 1 && (
+        <div
+          className="absolute rounded-full"
+          style={{ left: firstX, top: lineY, width: Math.max(0, lastX - firstX), height: 3, transform: "translateY(-50%)", background: color, opacity: 0.7 }}
+        />
+      )}
+      {projX != null && projX > lastX && (
+        <div
+          className="absolute"
+          style={{ left: lastX, top: lineY, width: projX - lastX, height: 0, borderTop: `2px dashed ${color}`, opacity: 0.5 }}
+        />
+      )}
+      {pts.map((p, i) => {
+        const isLast = i === pts.length - 1;
+        return (
+          <div
+            key={i}
+            className="absolute -translate-x-1/2 -translate-y-1/2"
+            style={{ left: x(p.offset), top: lineY, zIndex: 2 }}
+            title={`${p.total} ${traj.label}`}
+          >
+            <span
+              className="block rounded-full"
+              style={{
+                height: isLast ? dot + 3 : dot,
+                width: isLast ? dot + 3 : dot,
+                background: color,
+                boxShadow: isLast ? `0 0 0 2px var(--color-surface), 0 0 0 4px ${color}` : undefined,
+              }}
+            />
+            {expanded && (
+              <span
+                className={`absolute left-1/2 -translate-x-1/2 text-center text-[0.62rem] ${isLast ? "font-bold text-ink" : "text-muted"}`}
+                style={{ top: 10 }}
+              >
+                {p.total}
+              </span>
+            )}
+          </div>
+        );
+      })}
+      <div
+        className="absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ left: targetX, top: lineY, zIndex: 2 }}
+        title={`cible : ${traj.target} ${traj.label}`}
+      >
+        <span
+          className="flex items-center justify-center rounded-full"
+          style={{
+            height: expanded ? 22 : 15,
+            width: expanded ? 22 : 15,
+            background: traj.reached ? color : "var(--color-surface)",
+            border: `2px solid ${color}`,
+            color: traj.reached ? "var(--color-canvas)" : color,
+            fontSize: expanded ? "0.8rem" : "0.6rem",
+          }}
+        >
+          ★
+        </span>
+        {expanded && (
+          <span
+            className="absolute left-1/2 w-[6rem] -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
+            style={{ top: 14, color }}
+          >
+            {traj.target} {traj.label}
+            {traj.etaLabel && <span className="block text-faint">≈ {traj.etaLabel}</span>}
+            {traj.reached && <span className="block text-faint">atteint 🎉</span>}
+          </span>
+        )}
+      </div>
+      {expanded && traj.ratePerWeek != null && !traj.reached && projX != null && projX > lastX && (
+        <div
+          className="absolute -translate-x-1/2 truncate text-center text-[0.6rem]"
+          style={{ left: (lastX + projX) / 2, top: lineY - 16, width: Math.max(60, projX - lastX), color }}
+        >
+          ≈ {Math.round(traj.ratePerWeek * 10) / 10}/sem
+        </div>
+      )}
+    </>
   );
 }
 
