@@ -1152,7 +1152,7 @@ function AutoInput({ onCommit }: { onCommit: (v: string) => void }) {
 // On assume l'estimation (l'app sert à FAIRE AVANCER), cadrée « défi » et jamais
 // dette : à droite = intentions, si ça glisse on recale.
 
-const LANE_H = 72;
+const LANE_H = 86;
 
 function activeFlowTitles(o: Objective): string[] {
   return (o.flows ?? [])
@@ -1428,30 +1428,38 @@ function FriseLane({
           style={{ left: x(0), top: LINE_Y, width: futureW, height: 0, borderTop: `2px dashed ${color}`, opacity: 0.55 }}
         />
 
-        {marks.map((m) => (
+        {marks.map((m, i) => (
           <div
             key={m.id}
             title={m.title}
             className="absolute -translate-x-1/2 -translate-y-1/2"
-            style={{ left: x(m.offset), top: LINE_Y, zIndex: 2 }}
+            style={{ left: x(m.offset), top: LINE_Y, zIndex: m.kind === "next" ? 3 : 2 }}
           >
             {m.kind === "done" ? (
               <span className="block h-3.5 w-3.5 rounded-full" style={{ background: color }} />
             ) : m.kind === "next" ? (
-              <span className="relative flex h-5 w-5 items-center justify-center">
-                <span className="absolute inline-flex h-5 w-5 rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
-                <span className="relative h-4 w-4 rounded-full border-2 bg-surface" style={{ borderColor: color }} />
+              <span className="relative flex h-6 w-6 items-center justify-center">
+                <span className="absolute inline-flex h-6 w-6 rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
+                <span className="relative h-5 w-5 rounded-full border-[3px] bg-surface" style={{ borderColor: color }} />
               </span>
             ) : (
               <span className="block h-3 w-3 rounded-full border-2 bg-surface" style={{ borderColor: color, opacity: 0.6 }} />
             )}
             {showLabels && (
+              // Étagé sur deux rangées (top-4 / top-9) pour que les libellés
+              // proches ne se chevauchent plus.
               <span
-                className={`absolute left-1/2 top-3.5 w-[4.6rem] -translate-x-1/2 text-center text-[0.6rem] leading-tight ${
-                  m.kind === "next" ? "font-semibold text-ink" : m.kind === "done" ? "text-muted" : "text-faint"
+                className={`absolute left-1/2 w-[4.8rem] -translate-x-1/2 text-center text-[0.6rem] leading-tight ${
+                  i % 2 === 1 ? "top-9" : "top-4"
+                } ${
+                  m.kind === "next"
+                    ? "font-semibold text-ink"
+                    : m.kind === "done"
+                      ? "text-muted"
+                      : "text-faint"
                 }`}
               >
-                {m.title.length > 28 ? `${m.title.slice(0, 27)}…` : m.title}
+                {m.title.length > 30 ? `${m.title.slice(0, 29)}…` : m.title}
               </span>
             )}
           </div>
