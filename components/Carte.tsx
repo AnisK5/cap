@@ -1152,7 +1152,7 @@ function AutoInput({ onCommit }: { onCommit: (v: string) => void }) {
 // On assume l'estimation (l'app sert à FAIRE AVANCER), cadrée « défi » et jamais
 // dette : à droite = intentions, si ça glisse on recale.
 
-const LANE_H = 56;
+const LANE_H = 72;
 
 function activeFlowTitles(o: Objective): string[] {
   return (o.flows ?? [])
@@ -1243,6 +1243,10 @@ function TimelineView({
   onUpdateObjective,
   colorOf,
 }: CarteProps & { colorOf: (id: string) => string }) {
+  const [zoom, setZoom] = useState<"semaine" | "mois">("semaine");
+  const weekW = zoom === "semaine" ? 76 : 30;
+  const showLabels = zoom === "semaine";
+
   const monday = mondayOfThisWeek();
   const lanes = objectives.map((o) => buildLane(o, colorOf(o.id), monday));
 
@@ -1250,8 +1254,8 @@ function TimelineView({
   const minOff = Math.min(0, ...offs) - 1;
   const maxOff = Math.max(2, ...offs) + 1;
   const N = maxOff - minOff + 1;
-  const x = (offset: number) => LABEL_W + (offset - minOff) * WEEK_W;
-  const trackW = N * WEEK_W;
+  const x = (offset: number) => LABEL_W + (offset - minOff) * weekW;
+  const trackW = N * weekW;
 
   const weeks = Array.from({ length: N }, (_, i) => {
     const ws = new Date(monday);
@@ -1267,6 +1271,21 @@ function TimelineView({
 
   return (
     <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6">
+      <div className="mb-3 flex items-center justify-end">
+        <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
+          {(["semaine", "mois"] as const).map((z) => (
+            <button
+              key={z}
+              onClick={() => setZoom(z)}
+              className={`rounded-full px-2.5 py-0.5 transition-colors ${
+                zoom === z ? "bg-ink text-canvas" : "text-muted hover:text-ink"
+              }`}
+            >
+              {z}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="-mx-1 overflow-x-auto pb-2">
         <div className="relative" style={{ minWidth: LABEL_W + trackW }}>
           {/* Bande + ligne « maintenant » — l'ancre du regard. */}
@@ -1274,7 +1293,7 @@ function TimelineView({
             className="pointer-events-none absolute rounded-md"
             style={{
               left: x(0),
-              width: WEEK_W,
+              width: weekW,
               top: HEADER_H,
               bottom: 4,
               background: "var(--color-cap-soft)",
@@ -1299,7 +1318,7 @@ function TimelineView({
                   <div
                     key={i}
                     className="flex items-center justify-center border-l border-line text-xs font-medium text-muted"
-                    style={{ width: g.span * WEEK_W }}
+                    style={{ width: g.span * weekW }}
                   >
                     {MONTHS[g.month]}
                   </div>
@@ -1319,6 +1338,7 @@ function TimelineView({
               key={l.o.id}
               lane={l}
               x={x}
+              showLabels={showLabels}
               onOpen={onOpen}
               onDelete={onDeleteCap ? () => onDeleteCap(l.o.id) : undefined}
               onEditTitle={
@@ -1341,12 +1361,14 @@ function TimelineView({
 function FriseLane({
   lane,
   x,
+  showLabels,
   onOpen,
   onDelete,
   onEditTitle,
 }: {
   lane: Lane;
   x: (o: number) => number;
+  showLabels: boolean;
   onOpen: () => void;
   onDelete?: () => void;
   onEditTitle?: (t: string) => void;
@@ -1354,6 +1376,8 @@ function FriseLane({
   const { o, color, marks, targetOffset, targetLabel, flows, done, total } = lane;
   const doneMarks = marks.filter((m) => m.kind === "done");
   const pastStart = doneMarks.length ? Math.min(...doneMarks.map((m) => m.offset)) : 0;
+  const futureW = Math.max(0, x(targetOffset) - x(0));
+  const LINE_Y = 26; // la ligne du temps dans la lane ; labels dessous, moteur dessus
 
   return (
     <div className="group border-t border-line/70 pb-2 pt-2 first:border-t-0">
@@ -1382,23 +1406,34 @@ function FriseLane({
       </div>
 
       <div className="relative" style={{ height: LANE_H }}>
+        {/* LE MOTEUR, posé SUR la portion future : c'est lui qui pousse vers la
+            cible (souvent le vrai progrès). Au-dessus de la ligne. */}
+        {flows.length > 0 && futureW > 40 && (
+          <div
+            className="absolute -translate-x-1/2 truncate text-center text-[0.62rem] font-medium"
+            style={{ left: x(0) + futureW / 2, top: 2, width: Math.min(futureW - 8, 300), color }}
+            title={`moteur en continu : ${flows.join(" · ")}`}
+          >
+            ⚙ {flows.join(" · ")} →
+          </div>
+        )}
         {/* passé plein */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 rounded-full"
-          style={{ left: x(pastStart), width: Math.max(0, x(0) - x(pastStart)), height: 3, background: color, opacity: 0.55 }}
+          className="absolute rounded-full"
+          style={{ left: x(pastStart), top: LINE_Y, width: Math.max(0, x(0) - x(pastStart)), height: 3, transform: "translateY(-50%)", background: color, opacity: 0.55 }}
         />
-        {/* futur pointillé */}
+        {/* futur pointillé (la trajectoire du moteur vers la cible) */}
         <div
-          className="absolute top-1/2 -translate-y-1/2"
-          style={{ left: x(0), width: Math.max(0, x(targetOffset) - x(0)), height: 0, borderTop: `2px dashed ${color}`, opacity: 0.5 }}
+          className="absolute"
+          style={{ left: x(0), top: LINE_Y, width: futureW, height: 0, borderTop: `2px dashed ${color}`, opacity: 0.55 }}
         />
 
         {marks.map((m) => (
           <div
             key={m.id}
             title={m.title}
-            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
-            style={{ left: x(m.offset), zIndex: 2 }}
+            className="absolute -translate-x-1/2 -translate-y-1/2"
+            style={{ left: x(m.offset), top: LINE_Y, zIndex: 2 }}
           >
             {m.kind === "done" ? (
               <span className="block h-3.5 w-3.5 rounded-full" style={{ background: color }} />
@@ -1410,9 +1445,13 @@ function FriseLane({
             ) : (
               <span className="block h-3 w-3 rounded-full border-2 bg-surface" style={{ borderColor: color, opacity: 0.6 }} />
             )}
-            {m.kind === "next" && (
-              <span className="absolute left-1/2 top-5 w-28 -translate-x-1/2 truncate text-center text-[0.62rem] font-medium text-ink">
-                {m.title}
+            {showLabels && (
+              <span
+                className={`absolute left-1/2 top-3.5 w-[4.6rem] -translate-x-1/2 text-center text-[0.6rem] leading-tight ${
+                  m.kind === "next" ? "font-semibold text-ink" : m.kind === "done" ? "text-muted" : "text-faint"
+                }`}
+              >
+                {m.title.length > 28 ? `${m.title.slice(0, 27)}…` : m.title}
               </span>
             )}
           </div>
@@ -1420,8 +1459,8 @@ function FriseLane({
 
         {/* cible */}
         <div
-          className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
-          style={{ left: x(targetOffset), zIndex: 2 }}
+          className="absolute -translate-x-1/2 -translate-y-1/2"
+          style={{ left: x(targetOffset), top: LINE_Y, zIndex: 2 }}
           title={o.target ? `cible : ${o.target}` : targetLabel}
         >
           <span
@@ -1430,21 +1469,17 @@ function FriseLane({
           >
             ☆
           </span>
-          <span
-            className="absolute left-1/2 top-5 w-24 -translate-x-1/2 truncate text-center text-[0.6rem]"
-            style={{ color }}
-          >
-            {targetLabel}
-          </span>
+          {showLabels && (
+            <span
+              className="absolute left-1/2 top-3.5 w-[5rem] -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
+              style={{ color }}
+            >
+              {targetLabel.length > 26 ? `${targetLabel.slice(0, 25)}…` : targetLabel}
+            </span>
+          )}
         </div>
       </div>
 
-      {flows.length > 0 && (
-        <p className="pl-1 text-[0.7rem] text-faint">
-          <span style={{ color }}>⚙ moteur</span> : {flows.join(" · ")}{" "}
-          <span>— continue →</span>
-        </p>
-      )}
       {total === 0 && (
         <p className="pl-1 text-xs italic text-faint">
           à cartographier —{" "}
