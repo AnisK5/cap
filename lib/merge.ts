@@ -496,20 +496,62 @@ export function rollDay(state: CapState, dayIso: string): CapState {
   );
   const dayWins = doneList.length;
   const dayTitles = doneList.map((i) => i.title);
+
+  // Débit du MOTEUR par cap : on attribue chaque créneau fait à son cap (via la
+  // priorité liée → objectiveId). C'est l'accumulation qui grimpe entre les
+  // jalons (souvent le vrai progrès d'un cap « à moteur » : candidater, prospecter).
+  const capCount = new Map<string, number>();
+  if (state.dayPlan?.length) {
+    for (const d of state.dayPlan) {
+      if (!dayItemDone(d)) continue;
+      const capId =
+        d.kind === "priority" && d.refId
+          ? state.priorities.find((p) => p.id === d.refId)?.objectiveId
+          : undefined;
+      if (capId) capCount.set(capId, (capCount.get(capId) ?? 0) + 1);
+    }
+  } else {
+    for (const p of state.priorities) {
+      if (p.done && p.objectiveId)
+        capCount.set(p.objectiveId, (capCount.get(p.objectiveId) ?? 0) + 1);
+    }
+  }
+  const dayCapWins = [...capCount.entries()].map(([capId, count]) => ({ capId, count }));
+  const mergeCapWins = (
+    a: { capId: string; count: number }[] | undefined,
+    b: { capId: string; count: number }[],
+  ) => {
+    const m = new Map<string, number>();
+    for (const c of a ?? []) m.set(c.capId, c.count);
+    for (const c of b) m.set(c.capId, (m.get(c.capId) ?? 0) + c.count);
+    return [...m.entries()].map(([capId, count]) => ({ capId, count }));
+  };
+
   let weeklyLog = state.weeklyLog;
   if (hadContent && dayWins > 0) {
     const wk = mondayIso(dayIso);
     const prev = state.weeklyLog ?? [];
     const found = prev.find((w) => w.week === wk);
     weeklyLog = found
-      ? prev.map((w) =>
-          w.week === wk
-            ? { ...w, wins: w.wins + dayWins, items: [...(w.items ?? []), ...dayTitles] }
-            : w,
-        )
-      : [...prev, { week: wk, wins: dayWins, items: dayTitles }].sort((a, b) =>
-          a.week < b.week ? -1 : a.week > b.week ? 1 : 0,
-        );
+      ? prev.map((w) => {
+          if (w.week !== wk) return w;
+          const cw = mergeCapWins(w.capWins, dayCapWins);
+          return {
+            ...w,
+            wins: w.wins + dayWins,
+            items: [...(w.items ?? []), ...dayTitles],
+            ...(cw.length ? { capWins: cw } : {}),
+          };
+        })
+      : [
+          ...prev,
+          {
+            week: wk,
+            wins: dayWins,
+            items: dayTitles,
+            ...(dayCapWins.length ? { capWins: dayCapWins } : {}),
+          },
+        ].sort((a, b) => (a.week < b.week ? -1 : a.week > b.week ? 1 : 0));
   }
 
   return {

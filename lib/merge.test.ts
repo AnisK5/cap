@@ -475,4 +475,25 @@ describe("rollDay — passage à un nouveau jour", () => {
       items: ["8-10 invitations", "Sport"],
     });
   });
+
+  it("attribue le débit du moteur au cap (capWins) via la priorité liée", () => {
+    const state: CapState = {
+      ...baseState([jobCap()]),
+      priorities: [
+        { id: "p1", title: "8-10 invitations", why: "", done: true, objectiveId: "obj1" },
+      ],
+      dayPlan: [
+        { id: "d1", kind: "priority", refId: "p1", title: "8-10 invitations" },
+      ],
+    };
+    const next = rollDay(state, "2026-07-21");
+    expect(next.weeklyLog).toEqual([
+      {
+        week: "2026-07-20",
+        wins: 1,
+        items: ["8-10 invitations"],
+        capWins: [{ capId: "obj1", count: 1 }],
+      },
+    ]);
+  });
 });
