@@ -96,9 +96,11 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
   const appendDelta = useCallback((chunk: string) => {
     setMessages((m) => {
       const next = [...m];
+      const last = next[next.length - 1];
       next[next.length - 1] = {
+        ...last, // préserve l'horodatage posé à la création de la bulle
         role: "assistant",
-        content: next[next.length - 1].content + chunk,
+        content: last.content + chunk,
       };
       return next;
     });
@@ -108,7 +110,10 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
   const assistantTurn = useCallback(
     (sid: string, convo: ChatMessage[], extra: object) => {
       setError(null);
-      setMessages([...convo, { role: "assistant", content: "" }]);
+      setMessages([
+        ...convo,
+        { role: "assistant", content: "", at: new Date().toISOString() },
+      ]);
       setBusy(true);
       streamChat({ sessionId: sid, messages: convo, ...extra }, appendDelta)
         .then(() => reconcile(sid).then(onUpdate).catch(() => {}))
@@ -181,8 +186,12 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
     if (!text || busy || !sessionId) return;
     setDraft("");
     setError(null);
-    const convo: ChatMessage[] = [...messages, { role: "user", content: text }];
-    setMessages([...convo, { role: "assistant", content: "" }]);
+    const now = new Date().toISOString();
+    const convo: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: text, at: now },
+    ];
+    setMessages([...convo, { role: "assistant", content: "", at: now }]);
     setBusy(true);
     try {
       await streamChat({ sessionId, messages: convo }, appendDelta);
@@ -224,7 +233,13 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
       <div ref={scrollRef} className="w-full flex-1 overflow-y-auto pb-4">
         <div className="flex flex-col gap-6 py-4">
           {messages.map((m, i) => (
-            <Bubble key={i} role={m.role} content={m.content} busy={busy} />
+            <Bubble
+              key={i}
+              role={m.role}
+              content={m.content}
+              at={m.at}
+              busy={busy}
+            />
           ))}
           {error && (
             <p className="rounded-lg bg-gold-soft px-4 py-3 text-sm text-gold">
@@ -302,19 +317,36 @@ function DayStrip({ rows }: { rows: DayRow[] }) {
   );
 }
 
+function hhmm(iso: string): string {
+  return new Date(iso).toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function Bubble({
   role,
   content,
+  at,
   busy,
 }: {
   role: "assistant" | "user";
   content: string;
+  at?: string;
   busy: boolean;
 }) {
+  const time = at ? hhmm(at) : "";
   if (role === "user") {
     return (
-      <div className="animate-rise self-end rounded-2xl rounded-br-md bg-ink px-4 py-3 text-canvas max-w-[85%]">
-        <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
+      <div className="animate-rise max-w-[85%] self-end">
+        <div className="rounded-2xl rounded-br-md bg-ink px-4 py-3 text-canvas">
+          <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
+        </div>
+        {time && (
+          <p className="mt-1 pr-1 text-right text-xs tabular-nums text-faint">
+            {time}
+          </p>
+        )}
       </div>
     );
   }
@@ -326,6 +358,9 @@ function Bubble({
           <span className="animate-breathe text-faint">·&nbsp;·&nbsp;·</span>
         )}
       </p>
+      {time && content && (
+        <p className="mt-1 text-xs tabular-nums text-faint">{time}</p>
+      )}
     </div>
   );
 }

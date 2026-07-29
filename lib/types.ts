@@ -113,6 +113,7 @@ export type Role = "assistant" | "user";
 export interface ChatMessage {
   role: Role;
   content: string;
+  at?: string; // ISO — horodatage du message (absolu/UTC, formaté en heure locale à l'affichage)
 }
 
 // Une note de contexte : info mémo capturée par l'IA, qui ne mérite pas d'être

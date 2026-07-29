@@ -77,7 +77,7 @@ export async function POST(req: Request) {
         // un refresh au milieu d'une session ne perd plus la conversation.
         await saveSessionMessages(supabase, user.id, sessionId, [
           ...messages,
-          { role: "assistant", content: full },
+          { role: "assistant", content: full, at: new Date().toISOString() },
         ]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Erreur de génération.";
@@ -89,7 +89,13 @@ export async function POST(req: Request) {
           await saveSessionMessages(supabase, user.id, sessionId, [
             ...messages,
             ...(full.trim()
-              ? [{ role: "assistant" as const, content: `${full}\n\n⚠️ ${msg}` }]
+              ? [
+                  {
+                    role: "assistant" as const,
+                    content: `${full}\n\n⚠️ ${msg}`,
+                    at: new Date().toISOString(),
+                  },
+                ]
               : []),
           ]);
         } catch {

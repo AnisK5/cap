@@ -22,6 +22,35 @@ import InstallPrompt, { InstallBanner } from "@/components/InstallPrompt";
 
 type View = "clair" | "today" | "carte";
 
+// Force un re-render au passage de minuit (et au retour sur l'onglet), pour que
+// tout ce qui se calcule à partir de `new Date()` pendant le rendu — la date
+// « aujourd'hui » du header, la ligne « maintenant » et les projections de la
+// frise dans La carte — ne reste pas figé au jour où l'onglet a été ouvert.
+// Le setInterval peut être gelé en arrière-plan/veille, d'où le resync au focus.
+function useDayTick(): number {
+  const [dayStart, setDayStart] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  });
+  useEffect(() => {
+    function sync() {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      setDayStart((prev) => (prev === d.getTime() ? prev : d.getTime()));
+    }
+    const id = setInterval(sync, 60_000);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, []);
+  return dayStart;
+}
+
 export default function Home() {
   const { state, ready, hasServerState, replace, save } = useCap();
   const [view, setView] = useState<View>("clair");
@@ -29,6 +58,14 @@ export default function Home() {
   const [cleaning, setCleaning] = useState(false);
   // Plus d'atterrissage : pas d'animation de « pose » d'un tour à l'autre.
   const justLanded = false;
+
+  // Bascule de jour en direct (date du header + frise de La carte).
+  useDayTick();
+  const today = new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(new Date());
 
   // Nettoyage IA de la carte à la demande : fusionne les doublons sans perte.
   const cleanMap = useCallback(async () => {
@@ -236,7 +273,7 @@ export default function Home() {
 
   return (
     <main className="mx-auto min-h-full max-w-6xl px-6 pb-40 pt-12 sm:px-8 sm:pb-32 sm:pt-24">
-      <Header view={view} onView={setView} />
+      <Header view={view} onView={setView} today={today} />
 
       <InstallBanner />
 
@@ -946,15 +983,12 @@ function ImportBanner({ onImport }: { onImport: (s: CapState) => void }) {
 function Header({
   view,
   onView,
+  today,
 }: {
   view: View;
   onView: (v: View) => void;
+  today: string;
 }) {
-  const today = new Intl.DateTimeFormat("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  }).format(new Date());
   const title =
     view === "today"
       ? "Aujourd'hui"
