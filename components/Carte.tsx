@@ -15,9 +15,6 @@ import { capColor, deadlineChip, momentumLabel } from "./CapTrack";
 //    commun pour tous les caps — décision itér. 22).
 // ─────────────────────────────────────────────────────────────────────────
 
-const LABEL_W = 210;
-const WEEK_W = 52;
-const HEADER_H = 46;
 const MONTHS = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
@@ -1286,6 +1283,14 @@ function buildLane(o: Objective, color: string, monday: Date): Lane {
   };
 }
 
+// Géométrie de la frise : px par semaine (selon le zoom), marge intérieure et
+// hauteurs partagées. Toutes les cartes lisent le MÊME x() → un seul axe temps.
+const FRISE_UNIT = { jour: 150, semaine: 76, mois: 30 } as const;
+const GUTTER = 30;
+const RULER_H = 38;
+const TRACK_H = 70;
+const LINE_Y = 34;
+
 function TimelineView({
   objectives,
   onOpen,
@@ -1294,15 +1299,12 @@ function TimelineView({
   colorOf,
 }: CarteProps & { colorOf: (id: string) => string }) {
   const [zoom, setZoom] = useState<"jour" | "semaine" | "mois">("semaine");
-  const weekW = zoom === "jour" ? 150 : zoom === "semaine" ? 76 : 30;
-  // Fisheye : UN cap déplié à la fois (le détail), les autres en ligne fine.
-  const [expandedId, setExpandedId] = useState<string | null>(
-    objectives[0]?.id ?? null,
-  );
+  const unit = FRISE_UNIT[zoom];
 
   const monday = mondayOfThisWeek();
   const lanes = objectives.map((o) => buildLane(o, colorOf(o.id), monday));
 
+  // L'étendue de l'axe = l'union de TOUS les caps → une seule règle partagée.
   const offs = lanes.flatMap((l) => [
     ...l.marks.map((m) => m.offset),
     l.targetOffset,
@@ -1310,12 +1312,13 @@ function TimelineView({
     ...(l.traj?.projTargetOffset != null ? [l.traj.projTargetOffset] : []),
   ]);
   const minOff = Math.min(0, ...offs) - 1;
-  const maxOff = Math.max(2, ...offs) + 1;
-  const N = maxOff - minOff + 1;
-  const x = (offset: number) => LABEL_W + (offset - minOff) * weekW;
-  const trackW = N * weekW;
+  const maxOff = Math.max(Math.max(2, ...offs) + 1, minOff + 8);
+  const N = maxOff - minOff;
+  const x = (offset: number) => GUTTER + (offset - minOff) * unit;
+  const trackW = GUTTER * 2 + N * unit;
 
-  const weeks = Array.from({ length: N }, (_, i) => {
+  // Les semaines regroupées par mois → les bandeaux de la règle.
+  const weeks = Array.from({ length: N + 1 }, (_, i) => {
     const ws = new Date(monday);
     ws.setDate(monday.getDate() + (minOff + i) * 7);
     return { i, month: ws.getMonth() };
@@ -1328,8 +1331,11 @@ function TimelineView({
   }
 
   return (
-    <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6">
-      <div className="mb-3 flex items-center justify-end">
+    <div className="animate-rise rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+      <div className="mb-3 flex items-center justify-between gap-3 px-1">
+        <p className="text-xs uppercase tracking-[0.15em] text-faint">
+          Tes caps dans le temps
+        </p>
         <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
           {(["jour", "semaine", "mois"] as const).map((z) => (
             <button
@@ -1344,83 +1350,56 @@ function TimelineView({
           ))}
         </div>
       </div>
-      <div className="-mx-1 overflow-x-auto pb-2">
-        <div className="relative" style={{ minWidth: LABEL_W + trackW }}>
-          {/* Bande + ligne « maintenant » — l'ancre du regard. */}
-          <div
-            className="pointer-events-none absolute rounded-md"
-            style={{
-              left: x(0),
-              width: weekW,
-              top: HEADER_H,
-              bottom: 4,
-              background: "var(--color-cap-soft)",
-              opacity: 0.4,
-            }}
-          />
-          <div
-            className="pointer-events-none absolute"
-            style={{ left: x(0), top: HEADER_H - 16, bottom: 4, width: 2, background: "var(--color-cap)", opacity: 0.5 }}
-          />
-          {/* Délimitations de mois — des repères verticaux nets. */}
-          {monthGroups.map((g, i) =>
-            i === 0 ? null : (
-              <div
-                key={`ml${i}`}
-                className="pointer-events-none absolute"
-                style={{ left: x(minOff + g.start), top: HEADER_H - 22, bottom: 4, width: 1, background: "var(--color-line)" }}
-              />
-            ),
-          )}
 
-          <div className="flex" style={{ height: HEADER_H }}>
-            <div
-              className="flex items-end pb-1.5 text-[0.7rem] uppercase tracking-[0.15em] text-faint"
-              style={{ width: LABEL_W }}
-            >
-              Tes caps dans le temps
-            </div>
-            <div className="relative flex-1">
-              <div className="flex" style={{ height: 22 }}>
-                {monthGroups.map((g, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-center border-l border-line text-xs font-medium text-muted"
-                    style={{ width: g.span * weekW }}
-                  >
-                    {MONTHS[g.month]}
-                  </div>
-                ))}
-              </div>
+      <div className="-mx-1 overflow-x-auto px-1 pb-2">
+        <div className="relative" style={{ minWidth: trackW }}>
+          {/* La règle des mois — l'axe temps commun, posé une fois en haut. */}
+          <div className="relative" style={{ height: RULER_H }}>
+            {monthGroups.map((g, i) => (
               <div
-                className="absolute bottom-1 text-[0.6rem] font-semibold uppercase text-cap-ink"
-                style={{ left: x(0) - LABEL_W }}
+                key={i}
+                className="absolute bottom-0 flex items-end border-l border-line pb-1 pl-2 text-xs font-medium text-muted"
+                style={{ left: x(minOff + g.start), height: RULER_H - 4 }}
               >
-                maintenant
+                {MONTHS[g.month]}
               </div>
+            ))}
+            <div
+              className="absolute top-0 -translate-x-1/2 rounded-full px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-wide text-cap-ink"
+              style={{ left: x(0), background: "var(--color-cap-soft)" }}
+            >
+              maintenant
             </div>
           </div>
 
-          {lanes.map((l) => (
-            <FriseLane
-              key={l.o.id}
-              lane={l}
-              x={x}
-              expanded={expandedId === l.o.id}
-              onToggle={() =>
-                setExpandedId((id) => (id === l.o.id ? null : l.o.id))
-              }
-              onOpen={onOpen}
-              onDelete={onDeleteCap ? () => onDeleteCap(l.o.id) : undefined}
-              onEditTitle={
-                onUpdateObjective
-                  ? (t) => onUpdateObjective(l.o.id, (p) => ({ ...p, title: t }))
-                  : undefined
-              }
-            />
-          ))}
+          {/* La ligne « maintenant » traverse toute la pile : c'est elle qu'on
+              ressent comme l'axe partagé entre les cartes. */}
+          <div
+            className="pointer-events-none absolute z-20"
+            style={{ left: x(0) - 1, top: RULER_H, bottom: 0, width: 2, background: "var(--color-cap)", opacity: 0.25 }}
+          />
+
+          {/* Une carte par cap — qualité Chemins — toutes calées sur le même x(). */}
+          <div className="flex flex-col gap-2.5">
+            {lanes.map((l) => (
+              <FriseCard
+                key={l.o.id}
+                lane={l}
+                x={x}
+                trackW={trackW}
+                onOpen={onOpen}
+                onDelete={onDeleteCap ? () => onDeleteCap(l.o.id) : undefined}
+                onEditTitle={
+                  onUpdateObjective
+                    ? (t) => onUpdateObjective(l.o.id, (p) => ({ ...p, title: t }))
+                    : undefined
+                }
+              />
+            ))}
+          </div>
         </div>
       </div>
+
       <p className="mt-3 px-1 text-[0.7rem] leading-relaxed text-faint">
         Caps chiffrés : les points = ce que t&apos;as accumulé (30, 60…), le
         pointillé = la projection à ton rythme, ★ la cible + date estimée. Caps à
@@ -1431,66 +1410,75 @@ function TimelineView({
   );
 }
 
-function FriseLane({
+// La carte d'un cap dans la frise — même traitement que « Chemins » (liseré
+// coloré, tuile-icône, titre en gras, fond teinté) mais posée sur l'axe temps
+// commun : l'étiquette reste épinglée à gauche, la piste s'étend sur l'axe.
+function FriseCard({
   lane,
   x,
-  expanded,
-  onToggle,
+  trackW,
   onOpen,
   onDelete,
   onEditTitle,
 }: {
   lane: Lane;
   x: (o: number) => number;
-  expanded: boolean;
-  onToggle: () => void;
+  trackW: number;
   onOpen: () => void;
   onDelete?: () => void;
   onEditTitle?: (t: string) => void;
 }) {
-  const { o, color, marks, targetOffset, targetLabel, flows, done, total } = lane;
-  const doneMarks = marks.filter((m) => m.kind === "done");
-  const pastStart = doneMarks.length ? Math.min(...doneMarks.map((m) => m.offset)) : 0;
-
-  const LANE = expanded ? 92 : 32;
-  const LINE_Y = expanded ? 34 : 16;
-  const leftX = Math.min(x(pastStart), x(0));
-  const targetX = x(targetOffset);
-  const frac = total ? done / total : 0; // (jalons pour l'instant ; deviendra le moteur chiffré)
-  const fillX = leftX + frac * (targetX - leftX);
-  const futureW = Math.max(0, targetX - x(0));
+  const { o, color, traj, marks, total, done, flows } = lane;
+  const counter = traj
+    ? `${traj.current}/${traj.target} ${traj.label}`
+    : total > 0
+      ? `${done}/${total} jalons`
+      : null;
 
   return (
-    <div className="group border-t border-line/70 pt-2 first:border-t-0" style={{ paddingBottom: 8 }}>
-      {/* En-tête cliquable — déplie/replie ce cap (fisheye : un seul en détail). */}
-      <div
-        className="relative z-10 mb-1 flex cursor-pointer items-center gap-2.5"
-        style={{ width: LABEL_W }}
-        onClick={onToggle}
-      >
-        <span className="text-[0.7rem] text-faint">{expanded ? "▾" : "▸"}</span>
-        <span className="text-base leading-none">{o.icon ?? "◆"}</span>
-        <InlineEdit
-          value={o.title}
-          onChange={onEditTitle}
-          className={`truncate font-display font-medium text-ink ${expanded ? "text-base" : "text-sm"}`}
-          inputClassName="font-display text-sm font-medium text-ink border-b border-cap/40 w-40"
-        />
-        {lane.traj ? (
-          <span className="ml-auto shrink-0 text-[0.68rem] font-semibold" style={{ color }}>
-            {lane.traj.current}/{lane.traj.target} {lane.traj.label}
+    <section
+      className="group relative overflow-hidden rounded-2xl border border-line shadow-sm"
+      style={{
+        width: trackW,
+        borderLeft: `4px solid ${color}`,
+        background: `color-mix(in srgb, ${color} 5%, var(--color-surface))`,
+      }}
+    >
+      {/* Étiquette épinglée : reste lisible même quand on défile l'axe. */}
+      <div className="sticky left-0 z-10 flex w-fit max-w-[88vw] items-center gap-3 px-4 pt-3">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg leading-none"
+          style={{ background: `color-mix(in srgb, ${color} 15%, transparent)` }}
+        >
+          {o.icon ?? "◆"}
+        </span>
+        <div className="min-w-0">
+          <InlineEdit
+            value={o.title}
+            onChange={onEditTitle}
+            className="block truncate font-display text-lg font-medium text-ink"
+            inputClassName="font-display text-lg font-medium text-ink border-b border-cap/40 w-56"
+          />
+          {flows.length > 0 && (
+            <p className="mt-0.5 truncate text-xs text-muted" style={{ maxWidth: 260 }}>
+              <span style={{ color }}>⚙</span> {flows.join(" · ")}
+            </p>
+          )}
+        </div>
+        {counter && (
+          <span
+            className="ml-1 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
+            style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}
+          >
+            {counter}
           </span>
-        ) : total > 0 ? (
-          <span className="ml-auto shrink-0 text-[0.68rem] font-semibold" style={{ color }}>
-            {done}/{total}
-          </span>
-        ) : null}
+        )}
+        {traj?.etaLabel && !traj.reached && (
+          <span className="shrink-0 text-[0.7rem] text-faint">≈ {traj.etaLabel}</span>
+        )}
         {onDelete && (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
+            onClick={onDelete}
             className="shrink-0 px-1 text-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
             title="Supprimer ce cap"
           >
@@ -1499,136 +1487,57 @@ function FriseLane({
         )}
       </div>
 
-      <div className="relative" style={{ height: LANE }}>
-        {lane.traj ? (
-          <TrajLine traj={lane.traj} x={x} color={color} expanded={expanded} lineY={LINE_Y} />
+      {/* La piste — calée sur l'axe commun via x(). */}
+      <div className="relative" style={{ height: TRACK_H }}>
+        {traj ? (
+          <TrajTrack traj={traj} x={x} color={color} />
+        ) : marks.length > 0 ? (
+          <MarksTrack lane={lane} x={x} />
         ) : (
-          <>
-        {/* LA JAUGE : une piste posée sur l'axe temps, remplie de gauche vers la
-            cible ☆. Le remplissage comparé à la ligne « maintenant » = es-tu
-            dans les temps (fill derrière = tu prends du retard). */}
-        <div
-          className="absolute rounded-full"
-          style={{ left: leftX, top: LINE_Y, width: Math.max(0, targetX - leftX), height: expanded ? 8 : 5, transform: "translateY(-50%)", background: `color-mix(in srgb, ${color} 14%, var(--color-surface))` }}
-        />
-        <div
-          className="absolute rounded-full transition-all"
-          style={{ left: leftX, top: LINE_Y, width: Math.max(0, fillX - leftX), height: expanded ? 8 : 5, transform: "translateY(-50%)", background: color, opacity: 0.85 }}
-        />
-
-        {/* Le moteur (déplié) — ce qui pousse vers la cible, sur la portion future. */}
-        {expanded && flows.length > 0 && futureW > 50 && (
-          <div
-            className="absolute -translate-x-1/2 truncate text-center text-[0.62rem] font-medium"
-            style={{ left: x(0) + futureW / 2, top: LINE_Y - 22, width: Math.min(futureW - 8, 320), color }}
-            title={`moteur : ${flows.join(" · ")}`}
-          >
-            ⚙ {flows.join(" · ")} →
-          </div>
-        )}
-
-        {marks.map((m, i) => (
-          <div
-            key={m.id}
-            title={m.title}
-            className="absolute -translate-x-1/2 -translate-y-1/2"
-            style={{ left: x(m.offset), top: LINE_Y, zIndex: m.kind === "next" ? 3 : 2 }}
-          >
-            {m.kind === "done" ? (
-              <span className="block rounded-full" style={{ height: expanded ? 14 : 10, width: expanded ? 14 : 10, background: color }} />
-            ) : m.kind === "next" ? (
-              <span className="relative flex items-center justify-center" style={{ height: expanded ? 22 : 15, width: expanded ? 22 : 15 }}>
-                <span className="absolute inline-flex h-full w-full rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
-                <span className="relative rounded-full bg-surface" style={{ height: expanded ? 18 : 12, width: expanded ? 18 : 12, border: `3px solid ${color}` }} />
-              </span>
-            ) : (
-              <span className="block rounded-full bg-surface" style={{ height: expanded ? 12 : 9, width: expanded ? 12 : 9, border: `2px solid ${color}`, opacity: 0.6 }} />
-            )}
-            {expanded && (
-              <span
-                className={`absolute left-1/2 w-[4.8rem] -translate-x-1/2 text-center text-[0.6rem] leading-tight ${
-                  m.kind === "next" ? "font-semibold text-ink" : m.kind === "done" ? "text-muted" : "text-faint"
-                }`}
-                style={{ top: i % 2 === 1 ? 26 : 12 }}
-              >
-                {m.title.length > 30 ? `${m.title.slice(0, 29)}…` : m.title}
-              </span>
-            )}
-          </div>
-        ))}
-
-        {/* cible ☆ */}
-        <div
-          className="absolute -translate-x-1/2 -translate-y-1/2"
-          style={{ left: targetX, top: LINE_Y, zIndex: 2 }}
-          title={o.target ? `cible : ${o.target}` : targetLabel}
-        >
-          <span
-            className="flex items-center justify-center rounded-full bg-surface"
-            style={{ height: expanded ? 22 : 15, width: expanded ? 22 : 15, border: `2px solid ${color}`, color, fontSize: expanded ? "0.8rem" : "0.6rem" }}
-          >
-            ☆
-          </span>
-          {expanded && (
-            <span
-              className="absolute left-1/2 w-[5.5rem] -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
-              style={{ top: 14, color }}
-            >
-              {targetLabel.length > 28 ? `${targetLabel.slice(0, 27)}…` : targetLabel}
-            </span>
-          )}
-        </div>
-          </>
+          <EmptyTrack lane={lane} x={x} onOpen={onOpen} />
         )}
       </div>
-
-      {expanded && total === 0 && !lane.traj && (
-        <p className="pl-1 text-xs italic text-faint">
-          à cartographier —{" "}
-          <button onClick={onOpen} className="underline decoration-dotted hover:text-cap-ink">
-            parles-en avec Cap
-          </button>
-        </p>
-      )}
-    </div>
+    </section>
   );
 }
 
-// La COURBE de trajectoire sur la lane : les points réels chiffrés (30, 60…)
-// posés à leur date, reliés ; puis la PROJECTION au rythme (pointillé) jusqu'à
-// la cible ★, avec la date estimée. Le concret qui se place dans le temps.
-function TrajLine({
+// La COURBE chiffrée : points réels (30, 60…) datés & reliés, projection au
+// rythme (pointillé) → cible ★ + date estimée. Le concret qui se place dans le temps.
+function TrajTrack({
   traj,
   x,
   color,
-  expanded,
-  lineY,
 }: {
   traj: Traj;
   x: (o: number) => number;
   color: string;
-  expanded: boolean;
-  lineY: number;
 }) {
   const pts = traj.points;
   const firstX = x(pts[0].offset);
   const lastX = x(pts[pts.length - 1].offset);
   const projX = traj.projTargetOffset != null ? x(traj.projTargetOffset) : null;
-  const targetX = projX != null && projX > lastX ? projX : lastX + 24;
-  const dot = expanded ? 12 : 9;
+  const targetX = projX != null && projX > lastX ? projX : lastX + 40;
   return (
     <>
       {pts.length > 1 && (
         <div
           className="absolute rounded-full"
-          style={{ left: firstX, top: lineY, width: Math.max(0, lastX - firstX), height: 3, transform: "translateY(-50%)", background: color, opacity: 0.7 }}
+          style={{ left: firstX, top: LINE_Y, width: Math.max(0, lastX - firstX), height: 3, transform: "translateY(-50%)", background: color, opacity: 0.75 }}
         />
       )}
       {projX != null && projX > lastX && (
         <div
           className="absolute"
-          style={{ left: lastX, top: lineY, width: projX - lastX, height: 0, borderTop: `2px dashed ${color}`, opacity: 0.5 }}
+          style={{ left: lastX, top: LINE_Y, width: projX - lastX, height: 0, borderTop: `2px dashed ${color}`, opacity: 0.5 }}
         />
+      )}
+      {traj.ratePerWeek != null && !traj.reached && projX != null && projX > lastX && (
+        <div
+          className="absolute -translate-x-1/2 truncate text-center text-[0.6rem]"
+          style={{ left: (lastX + projX) / 2, top: LINE_Y - 20, width: Math.max(60, projX - lastX), color }}
+        >
+          ≈ {Math.round(traj.ratePerWeek * 10) / 10}/sem
+        </div>
       )}
       {pts.map((p, i) => {
         const isLast = i === pts.length - 1;
@@ -1636,68 +1545,174 @@ function TrajLine({
           <div
             key={i}
             className="absolute -translate-x-1/2 -translate-y-1/2"
-            style={{ left: x(p.offset), top: lineY, zIndex: 2 }}
+            style={{ left: x(p.offset), top: LINE_Y, zIndex: 2 }}
             title={`${p.total} ${traj.label}`}
           >
             <span
               className="block rounded-full"
               style={{
-                height: isLast ? dot + 3 : dot,
-                width: isLast ? dot + 3 : dot,
+                height: isLast ? 15 : 12,
+                width: isLast ? 15 : 12,
                 background: color,
                 boxShadow: isLast ? `0 0 0 2px var(--color-surface), 0 0 0 4px ${color}` : undefined,
               }}
             />
-            {expanded && (
-              // Les chiffres AU-DESSUS de la ligne (la cible est en dessous) —
-              // sinon, avec peu de points, tout se superpose.
-              <span
-                className={`absolute left-1/2 -translate-x-1/2 text-center text-[0.62rem] ${isLast ? "font-bold text-ink" : "text-muted"}`}
-                style={{ bottom: 10 }}
-              >
-                {p.total}
-              </span>
-            )}
+            {/* Les chiffres AU-DESSUS de la ligne (la cible est en dessous). */}
+            <span
+              className={`absolute left-1/2 -translate-x-1/2 text-center text-[0.66rem] ${isLast ? "font-bold text-ink" : "text-muted"}`}
+              style={{ bottom: 12 }}
+            >
+              {p.total}
+            </span>
           </div>
         );
       })}
       <div
         className="absolute -translate-x-1/2 -translate-y-1/2"
-        style={{ left: targetX, top: lineY, zIndex: 2 }}
+        style={{ left: targetX, top: LINE_Y, zIndex: 2 }}
         title={`cible : ${traj.target} ${traj.label}`}
       >
         <span
           className="flex items-center justify-center rounded-full"
           style={{
-            height: expanded ? 22 : 15,
-            width: expanded ? 22 : 15,
+            height: 24,
+            width: 24,
             background: traj.reached ? color : "var(--color-surface)",
             border: `2px solid ${color}`,
             color: traj.reached ? "var(--color-canvas)" : color,
-            fontSize: expanded ? "0.8rem" : "0.6rem",
+            fontSize: "0.85rem",
           }}
         >
           ★
         </span>
-        {expanded && (
-          <span
-            className="absolute left-1/2 w-[6rem] -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
-            style={{ top: 14, color }}
-          >
-            {traj.target} {traj.label}
-            {traj.etaLabel && <span className="block text-faint">≈ {traj.etaLabel}</span>}
-            {traj.reached && <span className="block text-faint">atteint 🎉</span>}
-          </span>
-        )}
-      </div>
-      {expanded && traj.ratePerWeek != null && !traj.reached && projX != null && projX > lastX && (
-        <div
-          className="absolute -translate-x-1/2 truncate text-center text-[0.6rem]"
-          style={{ left: (lastX + projX) / 2, top: lineY - 16, width: Math.max(60, projX - lastX), color }}
+        <span
+          className="absolute left-1/2 w-24 -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
+          style={{ top: 15, color }}
         >
-          ≈ {Math.round(traj.ratePerWeek * 10) / 10}/sem
+          {traj.target} {traj.label}
+          {traj.etaLabel && !traj.reached && <span className="block text-faint">≈ {traj.etaLabel}</span>}
+          {traj.reached && <span className="block text-faint">atteint 🎉</span>}
+        </span>
+      </div>
+    </>
+  );
+}
+
+// La piste à JALONS (caps non chiffrés) : une jauge posée sur l'axe temps,
+// remplie vers la cible ☆, avec les marques ● fait · ◉ prochain · ○ à venir.
+function MarksTrack({ lane, x }: { lane: Lane; x: (o: number) => number }) {
+  const { o, color, marks, targetOffset, targetLabel, done, total } = lane;
+  const doneMarks = marks.filter((m) => m.kind === "done");
+  const pastStart = doneMarks.length ? Math.min(...doneMarks.map((m) => m.offset)) : 0;
+  const leftX = Math.min(x(pastStart), x(0));
+  const targetX = x(targetOffset);
+  const frac = total ? done / total : 0;
+  const fillX = leftX + frac * (targetX - leftX);
+  return (
+    <>
+      <div
+        className="absolute rounded-full"
+        style={{ left: leftX, top: LINE_Y, width: Math.max(0, targetX - leftX), height: 7, transform: "translateY(-50%)", background: `color-mix(in srgb, ${color} 14%, var(--color-surface))` }}
+      />
+      <div
+        className="absolute rounded-full transition-all"
+        style={{ left: leftX, top: LINE_Y, width: Math.max(0, fillX - leftX), height: 7, transform: "translateY(-50%)", background: color, opacity: 0.85 }}
+      />
+      {marks.map((m, i) => (
+        <div
+          key={m.id}
+          title={m.title}
+          className="absolute -translate-x-1/2 -translate-y-1/2"
+          style={{ left: x(m.offset), top: LINE_Y, zIndex: m.kind === "next" ? 3 : 2 }}
+        >
+          {m.kind === "done" ? (
+            <span className="block rounded-full" style={{ height: 14, width: 14, background: color }} />
+          ) : m.kind === "next" ? (
+            <span className="relative flex items-center justify-center" style={{ height: 22, width: 22 }}>
+              <span className="absolute inline-flex h-full w-full rounded-full opacity-30 motion-safe:animate-ping" style={{ background: color }} />
+              <span className="relative rounded-full bg-surface" style={{ height: 18, width: 18, border: `3px solid ${color}` }} />
+            </span>
+          ) : (
+            <span className="block rounded-full bg-surface" style={{ height: 12, width: 12, border: `2px solid ${color}`, opacity: 0.6 }} />
+          )}
+          <span
+            className={`absolute left-1/2 w-[5rem] -translate-x-1/2 text-center text-[0.6rem] leading-tight ${
+              m.kind === "next" ? "font-semibold text-ink" : m.kind === "done" ? "text-muted" : "text-faint"
+            }`}
+            style={{ top: i % 2 === 1 ? 16 : -24 }}
+          >
+            {m.title.length > 34 ? `${m.title.slice(0, 33)}…` : m.title}
+          </span>
         </div>
-      )}
+      ))}
+      <div
+        className="absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ left: targetX, top: LINE_Y, zIndex: 2 }}
+        title={o.target ? `cible : ${o.target}` : targetLabel}
+      >
+        <span
+          className="flex items-center justify-center rounded-full bg-surface"
+          style={{ height: 22, width: 22, border: `2px solid ${color}`, color, fontSize: "0.8rem" }}
+        >
+          ☆
+        </span>
+        <span
+          className="absolute left-1/2 w-24 -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
+          style={{ top: 14, color }}
+        >
+          {targetLabel.length > 30 ? `${targetLabel.slice(0, 29)}…` : targetLabel}
+        </span>
+      </div>
+    </>
+  );
+}
+
+// La piste VIDE — jamais un blanc cassé : une trajectoire en pointillé de
+// « maintenant » vers une cible ☆ ouverte, et l'invite à la cartographier.
+function EmptyTrack({
+  lane,
+  x,
+  onOpen,
+}: {
+  lane: Lane;
+  x: (o: number) => number;
+  onOpen: () => void;
+}) {
+  const { color, targetOffset, targetLabel } = lane;
+  const leftX = x(0);
+  const targetX = x(targetOffset);
+  return (
+    <>
+      <div
+        className="absolute"
+        style={{ left: leftX, top: LINE_Y, width: Math.max(24, targetX - leftX), height: 0, borderTop: `2px dashed ${color}`, opacity: 0.4, transform: "translateY(-50%)" }}
+      />
+      <div
+        className="absolute text-xs italic text-faint"
+        style={{ left: leftX + 10, top: 8 }}
+      >
+        à cartographier —{" "}
+        <button onClick={onOpen} className="underline decoration-dotted hover:text-cap-ink">
+          parles-en avec Cap
+        </button>
+      </div>
+      <div
+        className="absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ left: targetX, top: LINE_Y }}
+      >
+        <span
+          className="flex items-center justify-center rounded-full bg-surface"
+          style={{ height: 22, width: 22, border: `2px dashed ${color}`, color, fontSize: "0.8rem", opacity: 0.7 }}
+        >
+          ☆
+        </span>
+        <span
+          className="absolute left-1/2 w-24 -translate-x-1/2 text-center text-[0.6rem] font-medium leading-tight"
+          style={{ top: 14, color, opacity: 0.8 }}
+        >
+          {targetLabel.length > 30 ? `${targetLabel.slice(0, 29)}…` : targetLabel}
+        </span>
+      </div>
     </>
   );
 }
