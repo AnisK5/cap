@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -232,15 +233,24 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
 
       <div ref={scrollRef} className="w-full flex-1 overflow-y-auto pb-4">
         <div className="flex flex-col gap-6 py-4">
-          {messages.map((m, i) => (
-            <Bubble
-              key={i}
-              role={m.role}
-              content={m.content}
-              at={m.at}
-              busy={busy}
-            />
-          ))}
+          {messages.map((m, i) => {
+            // Séparateur temporel quand un vrai laps s'est écoulé (reprise après
+            // pause, nouveau jour) : sinon la reprise du coach se confond
+            // visuellement avec ce qu'il venait de dire.
+            const sep = gapLabel(messages[i - 1]?.at, m.at);
+            return (
+              <Fragment key={i}>
+                {sep && (
+                  <div className="flex items-center gap-3 py-0.5 text-[0.7rem] text-faint">
+                    <span className="h-px flex-1 bg-line" />
+                    <span className="shrink-0">{sep}</span>
+                    <span className="h-px flex-1 bg-line" />
+                  </div>
+                )}
+                <Bubble role={m.role} content={m.content} at={m.at} busy={busy} />
+              </Fragment>
+            );
+          })}
           {error && (
             <p className="rounded-lg bg-gold-soft px-4 py-3 text-sm text-gold">
               {error}
@@ -322,6 +332,28 @@ function hhmm(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// Un repère entre deux messages quand un vrai laps s'est écoulé : rien si moins
+// d'une heure le même jour, l'heure si grand écart le même jour, le jour + heure
+// si on a changé de jour. Sans horodatage (anciens messages), pas de séparateur.
+function gapLabel(prevAt?: string, at?: string): string | null {
+  if (!prevAt || !at) return null;
+  const a = new Date(prevAt);
+  const b = new Date(at);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  const sameDay = a.toDateString() === b.toDateString();
+  const gapMin = (b.getTime() - a.getTime()) / 60000;
+  if (sameDay && gapMin < 60) return null;
+  if (!sameDay) {
+    const day = b.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+    return `${day} · ${hhmm(at)}`;
+  }
+  return hhmm(at);
 }
 
 function Bubble({

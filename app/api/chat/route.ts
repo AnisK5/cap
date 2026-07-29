@@ -50,28 +50,46 @@ export async function POST(req: Request) {
   if (resume) apiMessages.push({ role: "user", content: RESUME_CUE });
 
   const client = new Anthropic({ apiKey });
-  const stream = client.messages.stream({
-    model: CHAT_MODEL,
-    max_tokens: 1200,
-    system: chatSystemPrompt(state, timeZone, sinceMin),
-    messages: apiMessages,
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
-  });
+  const system = chatSystemPrompt(state, timeZone, sinceMin);
 
   const { supabase, user } = auth;
   const encoder = new TextEncoder();
+  // web_search est un outil SERVER-SIDE : quand sa boucle interne s'interrompt,
+  // la réponse s'arrête avec stop_reason "pause_turn" (pas "end_turn"). Il faut
+  // relancer la requête EN RENVOYANT la réponse partielle (le serveur détecte le
+  // bloc server_tool_use en attente et reprend tout seul) — sinon le message est
+  // tronqué en plein milieu (« Demain tu… »).
+  const MAX_CONTINUATIONS = 4;
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
+      let convo: Anthropic.MessageParam[] = apiMessages;
       try {
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            full += event.delta.text;
-            controller.enqueue(encoder.encode(event.delta.text));
+        for (let turn = 0; ; turn++) {
+          const stream = client.messages.stream({
+            model: CHAT_MODEL,
+            max_tokens: 1200,
+            system,
+            messages: convo,
+            tools: [
+              { type: "web_search_20260209", name: "web_search", max_uses: 3 },
+            ],
+          });
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              full += event.delta.text;
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
           }
+          const finalMsg = await stream.finalMessage();
+          if (finalMsg.stop_reason === "pause_turn" && turn < MAX_CONTINUATIONS) {
+            convo = [...convo, { role: "assistant", content: finalMsg.content }];
+            continue; // on reprend là où le tour s'est mis en pause
+          }
+          break;
         }
         // La session est sauvegardée CÔTÉ SERVEUR avant de clore le stream :
         // un refresh au milieu d'une session ne perd plus la conversation.
