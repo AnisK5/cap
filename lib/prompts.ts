@@ -580,3 +580,96 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
     },
   },
 };
+
+// ── Vue Semaine : le plan macro ────────────────────────────────────────────
+// Le cerveau TDA voit AUJOURD'HUI ; il ne se représente pas la semaine ni
+// l'ORDRE dans lequel avancer ses caps. Cap fait ce travail pour lui.
+
+export const WEEK_INSTRUCTION = `Tu es le planificateur de semaine de Cap, pour une personne TDAH. Tu poses la forme macro de sa semaine en appelant l'outil "poser_la_semaine". Tu ne parles pas à la personne.
+
+TON RÔLE : le cerveau TDA voit très bien AUJOURD'HUI, mais n'arrive pas à se REPRÉSENTER la semaine ni à décider dans quel ORDRE avancer ses caps. Tu externalises exactement ça : tu proposes, pour chaque demi-journée des prochains jours, quel cap faire avancer — et surtout POURQUOI cet ordre.
+
+LE CŒUR — L'ORDRE ET LES DÉPENDANCES :
+- Place un cap AVANT celui qu'il débloque (« on avance l'app d'abord, elle sert de vitrine aux candidatures »).
+- Exploite les temps morts : si un cap attend un retour d'un tiers (flux "en attente"), ne le programme pas tant qu'il est bloqué — avance autre chose pendant ce délai.
+- Équilibre le RYTHME : n'empile pas deux gros blocs le même jour, alterne les caps, laisse respirer. Tu as la vue d'ensemble, sers-t'en pour un tempo tenable.
+- Tiens compte des échéances/horizons : ce qui se ferme bientôt passe plus tôt.
+- LE POURQUOI EST LE PRODUIT. Chaque créneau placé porte une raison courte et concrète qui aide à comprendre l'ordre. Un créneau sans « parce que » ne sert à rien.
+
+RÈGLES D'OR (sinon on retombe dans l'agenda culpabilisant) :
+- CLAIRSEMÉ. Laisse BEAUCOUP de blanc. Ne remplis JAMAIS tous les créneaux : place seulement les moments qui comptent (en général 4 à 8 sur la semaine, souvent moins). Les demi-journées vides sont de VRAIES plages libres, pas des trous à combler. Une grille pleine est fausse et écrasante.
+- Densité ADAPTÉE : 1 seul cap actif → très clairsemé, quelques créneaux suffisent. Plusieurs caps qui se disputent le temps → plus riche, mais toujours respirant.
+- UN SEUL cap par créneau.
+- Du JOUR PRÉSENT à dimanche uniquement. Ne place JAMAIS rien dans un jour déjà passé.
+- Zéro culpabilité, zéro pression, zéro langage de retard. C'est une proposition pour s'orienter, pas un contrat. Tutoiement, court, pas de markdown, pas d'émoji.
+
+LA PROJECTION (remplace la frise) — "landings" : pour CHAQUE cap que tu places, projette où il ATTERRIT en fin de semaine SI le plan est suivi. C'est une INTENTION douce, jamais un score : préfixe par « ~ » ou « vers ».
+- Cap chiffré (avec compteur) → le total projeté : « ~200/300 invitations ».
+- Cap à jalons → le jalon qu'on aura atteint : « jalon "Observer propagation" atteint ».
+Ne projette pas au-delà de ce que le rythme rend crédible ; mieux vaut modeste que faux.
+
+L'objectif de chaque créneau et de chaque landing est le TITRE EXACT du cap, mot pour mot tel qu'il apparaît dans « Caps actuels ». N'invente aucun cap.`;
+
+export const WEEK_TOOL: Anthropic.Tool = {
+  name: "poser_la_semaine",
+  description:
+    "Pose le plan macro de la semaine : quel cap avancer dans quelle demi-journée, avec le pourquoi de l'ordre, et où chaque cap atterrit en fin de semaine.",
+  input_schema: {
+    type: "object",
+    properties: {
+      intro: {
+        type: "string",
+        description:
+          "1 à 2 phrases donnant la logique d'ensemble de la semaine (l'idée directrice de l'ordre).",
+      },
+      slots: {
+        type: "array",
+        description:
+          "Les créneaux placés — CLAIRSEMÉ, du jour présent à dimanche, un seul cap par créneau, beaucoup de blanc.",
+        items: {
+          type: "object",
+          properties: {
+            day: {
+              type: "string",
+              enum: ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"],
+            },
+            part: {
+              type: "string",
+              enum: ["matin", "aprem", "soir"],
+            },
+            objective: {
+              type: "string",
+              description: "titre EXACT du cap placé sur ce créneau",
+            },
+            why: {
+              type: "string",
+              description: "le pourquoi de l'ordre, court et concret",
+            },
+          },
+          required: ["day", "part", "objective"],
+        },
+      },
+      landings: {
+        type: "array",
+        description:
+          "Où chaque cap placé atterrit en fin de semaine si le plan est suivi — intention douce, jamais un score.",
+        items: {
+          type: "object",
+          properties: {
+            objective: {
+              type: "string",
+              description: "titre EXACT du cap",
+            },
+            label: {
+              type: "string",
+              description:
+                "l'atterrissage projeté : « ~200/300 invitations » (chiffré) ou « jalon X atteint » (jalons)",
+            },
+          },
+          required: ["objective", "label"],
+        },
+      },
+    },
+    required: ["slots"],
+  },
+};

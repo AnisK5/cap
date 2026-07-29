@@ -1,8 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Flow, FlowState, Habit, Objective, Step } from "@/lib/types";
+import type { Flow, FlowState, Habit, Objective, Step, WeekPlan } from "@/lib/types";
 import { newId } from "@/lib/merge";
+import {
+  DAY_KEYS,
+  DAY_SHORT,
+  PART_SHORT,
+  PARTS,
+  slotKey,
+  todayDayIdx,
+} from "@/lib/week";
 import { capColor, deadlineChip, momentumLabel } from "./CapTrack";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -32,10 +40,15 @@ interface CarteProps {
   onUpdateHabits?: UpdateHabits;
   onClean?: () => void;
   cleaning?: boolean;
+  weekPlan?: WeekPlan;
+  onGenerateWeek?: () => void;
+  generatingWeek?: boolean;
 }
 
 export default function Carte(props: CarteProps) {
-  const [mode, setMode] = useState<"chemins" | "semaines">("chemins");
+  const [mode, setMode] = useState<"chemins" | "semaines" | "planning">(
+    "chemins",
+  );
 
   if (props.objectives.length === 0) {
     return (
@@ -78,6 +91,9 @@ export default function Carte(props: CarteProps) {
           <ModeTab active={mode === "chemins"} onClick={() => setMode("chemins")}>
             Chemins
           </ModeTab>
+          <ModeTab active={mode === "planning"} onClick={() => setMode("planning")}>
+            Semaine
+          </ModeTab>
           <ModeTab active={mode === "semaines"} onClick={() => setMode("semaines")}>
             Frise
           </ModeTab>
@@ -91,12 +107,201 @@ export default function Carte(props: CarteProps) {
           colorOf={(id) => capColor(props.objectives, id)}
           onReorderCap={props.onReorderCap}
         />
+      ) : mode === "planning" ? (
+        <WeekView
+          weekPlan={props.weekPlan}
+          objectives={sorted}
+          colorOf={(id) => capColor(props.objectives, id)}
+          onGenerate={props.onGenerateWeek}
+          generating={props.generatingWeek}
+        />
       ) : (
         <TimelineView
           {...props}
           objectives={sorted}
           colorOf={(id) => capColor(props.objectives, id)}
         />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// VUE SEMAINE — le plan macro, 7 jours × 3 demi-journées. Chaque case remplie
+// = un cap (couleur + icône) avec le pourquoi de l'ordre ; les cases vides sont
+// des plages libres assumées. En bas, où chaque cap atterrit à ce rythme (la
+// projection, qui reprend le rôle de la frise). Lecture seule, généré par le
+// coach, re-dérivable — jamais une grille qu'on remplit.
+// ─────────────────────────────────────────────────────────────────────────
+function WeekView({
+  weekPlan,
+  objectives,
+  colorOf,
+  onGenerate,
+  generating,
+}: {
+  weekPlan?: WeekPlan;
+  objectives: Objective[];
+  colorOf: (id: string) => string;
+  onGenerate?: () => void;
+  generating?: boolean;
+}) {
+  const objById = new Map(objectives.map((o) => [o.id, o]));
+  const idx = todayDayIdx();
+  const slotByKey = new Map(
+    (weekPlan?.slots ?? []).map((s) => [slotKey(s.day, s.part), s]),
+  );
+  const hasPlan = !!weekPlan && weekPlan.slots.length > 0;
+
+  return (
+    <div>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <p className="min-w-0 flex-1 text-[0.95rem] leading-relaxed text-muted">
+          {weekPlan?.intro ??
+            "La forme de tes prochains jours : quel cap avancer quand, et où ça te mène. Le coach la propose — tu ne la remplis pas."}
+        </p>
+        {onGenerate && (
+          <button
+            onClick={onGenerate}
+            disabled={generating}
+            className="shrink-0 rounded-full border border-line bg-surface px-3 py-1 text-xs text-muted shadow-sm transition-colors hover:text-ink disabled:opacity-40"
+          >
+            {generating ? "…" : hasPlan ? "Régénérer" : "Proposer la semaine"}
+          </button>
+        )}
+      </div>
+
+      {!hasPlan ? (
+        <div className="rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-12 text-center">
+          <p className="mx-auto max-w-md text-muted">
+            {generating
+              ? "Le coach pose ta semaine…"
+              : "Pas encore de semaine posée. Demande au coach de proposer un ordre pour tes prochains jours."}
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto pb-1">
+            <div className="min-w-[600px]">
+              {/* En-tête des jours */}
+              <div className="grid grid-cols-[3.4rem_repeat(7,1fr)] gap-1.5">
+                <div />
+                {DAY_KEYS.map((d, i) => (
+                  <div
+                    key={d}
+                    className={`text-center text-[0.7rem] font-semibold uppercase tracking-wide ${
+                      i === idx
+                        ? "text-cap-ink"
+                        : i < idx
+                          ? "text-faint/50"
+                          : "text-faint"
+                    }`}
+                  >
+                    {DAY_SHORT[d]}
+                    {i === idx && (
+                      <span className="ml-1 font-normal normal-case text-cap">
+                        · auj.
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Une ligne par demi-journée */}
+              {PARTS.map((part) => (
+                <div
+                  key={part}
+                  className="mt-1.5 grid grid-cols-[3.4rem_repeat(7,1fr)] gap-1.5"
+                >
+                  <div className="flex items-center text-[0.7rem] text-faint">
+                    {PART_SHORT[part]}
+                  </div>
+                  {DAY_KEYS.map((d, i) => {
+                    const s = slotByKey.get(slotKey(d, part));
+                    const past = i < idx;
+                    const isToday = i === idx;
+                    if (!s) {
+                      return (
+                        <div
+                          key={d}
+                          className={`h-16 rounded-lg border border-dashed ${
+                            isToday ? "border-cap/30 bg-cap-soft/20" : "border-line/50"
+                          } ${past ? "opacity-40" : ""}`}
+                        />
+                      );
+                    }
+                    const o = objById.get(s.objectiveId);
+                    const color = colorOf(s.objectiveId);
+                    return (
+                      <div
+                        key={d}
+                        title={s.why ?? o?.title}
+                        className={`h-16 overflow-hidden rounded-lg border px-1.5 py-1 ${
+                          past ? "opacity-45" : ""
+                        }`}
+                        style={{
+                          borderColor: color,
+                          background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                        }}
+                      >
+                        <div className="flex items-center gap-1">
+                          {o?.icon && <span className="text-[0.7rem]">{o.icon}</span>}
+                          <span
+                            className="truncate text-[0.7rem] font-semibold leading-tight"
+                            style={{ color }}
+                          >
+                            {o?.title ?? "?"}
+                          </span>
+                        </div>
+                        {s.why && (
+                          <p className="mt-0.5 line-clamp-2 text-[0.62rem] leading-tight text-muted">
+                            {s.why}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <p className="mt-2.5 text-[0.7rem] text-faint">
+            Les cases pointillées sont des plages libres, laissées exprès. Rien à
+            y caser.
+          </p>
+
+          {weekPlan?.landings && weekPlan.landings.length > 0 && (
+            <div className="mt-7">
+              <p className="text-xs uppercase tracking-[0.18em] text-faint">
+                Où ça te mène, à ce rythme
+              </p>
+              <ul className="mt-3 flex flex-col gap-2">
+                {weekPlan.landings.map((l) => {
+                  const o = objById.get(l.objectiveId);
+                  const color = colorOf(l.objectiveId);
+                  return (
+                    <li
+                      key={l.objectiveId}
+                      className="flex items-baseline gap-2.5 text-sm"
+                    >
+                      <span
+                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                        style={{ background: color }}
+                      />
+                      <span className="text-ink">
+                        {o?.icon && `${o.icon} `}
+                        {o?.title}
+                      </span>
+                      <span className="text-faint">→</span>
+                      <span className="text-muted">{l.label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

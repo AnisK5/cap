@@ -56,6 +56,7 @@ export default function Home() {
   const [view, setView] = useState<View>("clair");
   const [toast, setToast] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
+  const [weekBusy, setWeekBusy] = useState(false);
   // Plus d'atterrissage : pas d'animation de « pose » d'un tour à l'autre.
   const justLanded = false;
 
@@ -90,6 +91,22 @@ export default function Home() {
       setCleaning(false);
     }
   }, [cleaning, replace]);
+
+  // Vue Semaine : le coach pose le plan macro (quel cap dans quelle demi-journée
+  // + où ça atterrit), rangé dans l'état comme le reste.
+  const generateWeek = useCallback(async () => {
+    if (weekBusy) return;
+    setWeekBusy(true);
+    try {
+      const res = await fetch("/api/week", { method: "POST" });
+      const j = await res.json();
+      if (res.ok && j.state) replace(j);
+    } catch {
+      // silencieux : on ne casse rien, l'état reste
+    } finally {
+      setWeekBusy(false);
+    }
+  }, [weekBusy, replace]);
 
   const openClair = useCallback(() => setView("clair"), []);
 
@@ -421,6 +438,9 @@ export default function Home() {
             onUpdateHabits={onUpdateHabits}
             onClean={cleanMap}
             cleaning={cleaning}
+            weekPlan={state.weekPlan}
+            onGenerateWeek={generateWeek}
+            generatingWeek={weekBusy}
           />
           {(state.contextNotes?.length || state.understanding?.trim()) && (
             <div className="mx-auto mt-6 max-w-2xl space-y-3">

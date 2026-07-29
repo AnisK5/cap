@@ -144,6 +144,36 @@ export interface WeekWins {
   capWins?: { capId: string; count: number }[]; // débit du MOTEUR par cap (accumulation dans le temps)
 }
 
+// La vue SEMAINE : le plan macro que le cerveau TDA n'arrive pas à tenir. Le
+// coach propose, pour les prochains jours, quel cap avancer dans quelle
+// demi-journée (matin/aprem/soir) et POURQUOI cet ordre — puis projette où
+// chaque cap ATTERRIT en fin de semaine (ce qui absorbe le rôle de la frise).
+// Générée par l'IA, clairsemée, re-dérivable : jamais une grille qu'on remplit,
+// jamais un état « en retard ». Les créneaux vides sont de vraies plages libres.
+export type WeekDayKey = "lun" | "mar" | "mer" | "jeu" | "ven" | "sam" | "dim";
+export type WeekPart = "matin" | "aprem" | "soir";
+
+export interface WeekSlot {
+  day: WeekDayKey;
+  part: WeekPart;
+  objectiveId: string; // le cap placé sur ce créneau (résolu côté serveur)
+  why?: string; // le pourquoi de l'ordre (« sert à… », « pendant que… »)
+}
+
+// Où un cap arrive en fin de semaine si le plan est suivi — soft, jamais un
+// score : « ~200/300 invitations », « jalon Observer propagation atteint ».
+export interface WeekLanding {
+  objectiveId: string;
+  label: string;
+}
+
+export interface WeekPlan {
+  generatedAt: string; // ISO
+  intro?: string; // 1-2 phrases donnant la logique d'ensemble
+  slots: WeekSlot[];
+  landings?: WeekLanding[];
+}
+
 // L'état complet, persistant. `understanding` = ce que l'assistant a compris de
 // toi (objectifs, contraintes, décisions passées) — le moat, mis à jour au fil
 // de l'eau. `lastNote` = la phrase élégante « voilà ce qui a changé ».
@@ -159,6 +189,7 @@ export interface CapState {
   dayPlan?: DayItem[]; // la journée ordonnée, tenue en direct
   history?: DayLog[]; // les jours passés, archivés au rollover (cappé ~14)
   weeklyLog?: WeekWins[]; // victoires agrégées par semaine, durable (le Parcours)
+  weekPlan?: WeekPlan; // le plan macro de la semaine (vue Semaine de La carte)
 }
 
 export const EMPTY_STATE: CapState = {
