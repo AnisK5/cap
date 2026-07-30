@@ -57,6 +57,9 @@ export default function Home() {
   const [toast, setToast] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [weekBusy, setWeekBusy] = useState(false);
+  const [carteMode, setCarteMode] = useState<
+    "chemins" | "semaines" | "planning"
+  >("chemins");
   // Plus d'atterrissage : pas d'animation de « pose » d'un tour à l'autre.
   const justLanded = false;
 
@@ -441,8 +444,11 @@ export default function Home() {
             weekPlan={state.weekPlan}
             onGenerateWeek={generateWeek}
             generatingWeek={weekBusy}
+            onModeChange={setCarteMode}
           />
-          {(state.contextNotes?.length || state.understanding?.trim()) && (
+          {/* En vue Semaine, on masque ces deux blocs : la grille se suffit. */}
+          {carteMode !== "planning" &&
+            (state.contextNotes?.length || state.understanding?.trim()) && (
             <div className="mx-auto mt-6 max-w-2xl space-y-3">
               {state.understanding?.trim() && (
                 <UnderstandingSection

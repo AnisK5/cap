@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Flow, FlowState, Habit, Objective, Step, WeekPlan } from "@/lib/types";
 import { newId } from "@/lib/merge";
 import {
@@ -43,12 +43,17 @@ interface CarteProps {
   weekPlan?: WeekPlan;
   onGenerateWeek?: () => void;
   generatingWeek?: boolean;
+  onModeChange?: (mode: "chemins" | "semaines" | "planning") => void;
 }
 
 export default function Carte(props: CarteProps) {
   const [mode, setMode] = useState<"chemins" | "semaines" | "planning">(
     "chemins",
   );
+  const { onModeChange } = props;
+  useEffect(() => {
+    onModeChange?.(mode);
+  }, [mode, onModeChange]);
 
   if (props.objectives.length === 0) {
     return (
@@ -94,16 +99,13 @@ export default function Carte(props: CarteProps) {
           <ModeTab active={mode === "planning"} onClick={() => setMode("planning")}>
             Semaine
           </ModeTab>
-          <ModeTab active={mode === "semaines"} onClick={() => setMode("semaines")}>
-            Frise
-          </ModeTab>
         </div>
       </div>
       {mode === "chemins" ? (
         <PathsView
           {...props}
           objectives={sorted}
-          onSeeWeeks={() => setMode("semaines")}
+          onSeeWeeks={() => setMode("planning")}
           colorOf={(id) => capColor(props.objectives, id)}
           onReorderCap={props.onReorderCap}
         />
