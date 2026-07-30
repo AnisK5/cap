@@ -153,11 +153,20 @@ export interface WeekWins {
 export type WeekDayKey = "lun" | "mar" | "mer" | "jeu" | "ven" | "sam" | "dim";
 export type WeekPart = "matin" | "aprem" | "soir";
 
+// Un sous-créneau concret dans une demi-journée : un mini-bloc borné avec son
+// objectif chiffré. Ex. label « 2×30 min invitations », goal « viser 20 ».
+export interface WeekBlock {
+  label: string; // le bloc borné (durée + tâche)
+  goal?: string; // le mini-objectif concret et mesurable
+}
+
 export interface WeekSlot {
   day: WeekDayKey;
   part: WeekPart;
   objectiveId: string; // le cap placé sur ce créneau (résolu côté serveur)
   why?: string; // le pourquoi de l'ordre (« sert à… », « pendant que… »)
+  goal?: string; // le mini-objectif de la demi-journée (« vider le stock d'acceptés + 20 invitations »)
+  blocks?: WeekBlock[]; // le découpage concret (2×30 min…), facultatif
 }
 
 // Où un cap arrive en fin de semaine si le plan est suivi — soft, jamais un

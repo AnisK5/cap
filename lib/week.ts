@@ -2,6 +2,7 @@
 // Utilisées côté API (/api/week) et côté UI (Carte → vue Semaine).
 
 import type {
+  WeekBlock,
   WeekDayKey,
   WeekLanding,
   WeekPart,
@@ -62,7 +63,14 @@ export const slotKey = (day: WeekDayKey, part: WeekPart) => `${day}-${part}`;
 // réconciliation). Utilisé par /api/week ET par la réconciliation.
 export interface RawWeekPlan {
   intro?: string;
-  slots?: { day?: string; part?: string; objective?: string; why?: string }[];
+  slots?: {
+    day?: string;
+    part?: string;
+    objective?: string;
+    why?: string;
+    goal?: string;
+    blocks?: { label?: string; goal?: string }[];
+  }[];
   landings?: { objective?: string; label?: string }[];
 }
 
@@ -92,11 +100,19 @@ export function normalizeWeekPlan(
     const objectiveId = resolveId(s.objective);
     if (!objectiveId) continue;
     seen.add(key);
+    const blocks: WeekBlock[] = (s.blocks ?? [])
+      .filter((b) => b?.label?.trim())
+      .map((b) => ({
+        label: b.label!.trim(),
+        goal: b.goal?.trim() || undefined,
+      }));
     slots.push({
       day: s.day as WeekDayKey,
       part: s.part as WeekPart,
       objectiveId,
       why: s.why?.trim() || undefined,
+      goal: s.goal?.trim() || undefined,
+      blocks: blocks.length ? blocks : undefined,
     });
   }
 

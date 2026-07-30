@@ -184,14 +184,14 @@ function WeekView({
       ) : (
         <>
           <div className="overflow-x-auto pb-1">
-            <div className="min-w-[600px]">
+            <div className="min-w-[64rem]">
               {/* En-tête des jours */}
-              <div className="grid grid-cols-[3.4rem_repeat(7,1fr)] gap-1.5">
+              <div className="grid grid-cols-[2.8rem_repeat(7,minmax(9.5rem,1fr))] gap-1.5">
                 <div />
                 {DAY_KEYS.map((d, i) => (
                   <div
                     key={d}
-                    className={`text-center text-[0.7rem] font-semibold uppercase tracking-wide ${
+                    className={`text-center text-xs font-semibold uppercase tracking-wide ${
                       i === idx
                         ? "text-cap-ink"
                         : i < idx
@@ -213,9 +213,9 @@ function WeekView({
               {PARTS.map((part) => (
                 <div
                   key={part}
-                  className="mt-1.5 grid grid-cols-[3.4rem_repeat(7,1fr)] gap-1.5"
+                  className="mt-1.5 grid grid-cols-[2.8rem_repeat(7,minmax(9.5rem,1fr))] gap-1.5"
                 >
-                  <div className="flex items-center text-[0.7rem] text-faint">
+                  <div className="flex items-center text-xs font-medium text-faint">
                     {PART_SHORT[part]}
                   </div>
                   {DAY_KEYS.map((d, i) => {
@@ -226,7 +226,7 @@ function WeekView({
                       return (
                         <div
                           key={d}
-                          className={`h-16 rounded-lg border border-dashed ${
+                          className={`min-h-[6.5rem] rounded-xl border border-dashed ${
                             isToday ? "border-cap/30 bg-cap-soft/20" : "border-line/50"
                           } ${past ? "opacity-40" : ""}`}
                         />
@@ -237,26 +237,52 @@ function WeekView({
                     return (
                       <div
                         key={d}
-                        title={s.why ?? o?.title}
-                        className={`h-16 overflow-hidden rounded-lg border px-1.5 py-1 ${
+                        className={`min-h-[6.5rem] overflow-hidden rounded-xl border-l-4 border border-line bg-surface px-2.5 py-2 shadow-sm ${
                           past ? "opacity-45" : ""
                         }`}
-                        style={{
-                          borderColor: color,
-                          background: `color-mix(in srgb, ${color} 12%, transparent)`,
-                        }}
+                        style={{ borderLeftColor: color }}
                       >
-                        <div className="flex items-center gap-1">
-                          {o?.icon && <span className="text-[0.7rem]">{o.icon}</span>}
+                        {/* Le cap, bien visible : icône + nom coloré */}
+                        <div className="flex items-center gap-1.5">
+                          {o?.icon && <span className="text-sm">{o.icon}</span>}
                           <span
-                            className="truncate text-[0.7rem] font-semibold leading-tight"
+                            className="text-[0.8rem] font-semibold leading-tight"
                             style={{ color }}
                           >
                             {o?.title ?? "?"}
                           </span>
                         </div>
+
+                        {/* Le mini-objectif de la demi-journée, en évidence */}
+                        {s.goal && (
+                          <p className="mt-1 flex gap-1 text-[0.78rem] font-medium leading-snug text-ink">
+                            <span aria-hidden>🎯</span>
+                            <span>{s.goal}</span>
+                          </p>
+                        )}
+
+                        {/* Le découpage concret en sous-créneaux */}
+                        {s.blocks && s.blocks.length > 0 && (
+                          <ul className="mt-1.5 flex flex-col gap-1">
+                            {s.blocks.map((b, bi) => (
+                              <li
+                                key={bi}
+                                className="rounded-md bg-canvas/60 px-1.5 py-1 text-[0.72rem] leading-snug"
+                              >
+                                <span className="font-medium text-ink">
+                                  {b.label}
+                                </span>
+                                {b.goal && (
+                                  <span className="text-muted"> · {b.goal}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {/* Le pourquoi de l'ordre, en appui, entier */}
                         {s.why && (
-                          <p className="mt-0.5 line-clamp-2 text-[0.62rem] leading-tight text-muted">
+                          <p className="mt-1.5 text-[0.7rem] italic leading-snug text-faint">
                             {s.why}
                           </p>
                         )}

@@ -390,7 +390,7 @@ Règles :
 - PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
 - CAPTURE SES PRÉFÉRENCES ET LEVIERS DE MOTIVATION dans "understanding" dès qu'ils émergent, pour que le coach s'en serve sans les redemander : ce qui la motive (ex. « carbure aux créneaux bornés avec stop dur »), CE QUI LA BOOSTE (ex. « un matcha pour démarrer », « une marche pour se remettre en route »), CE QU'ELLE PRÉFÈRE ÉVITER (ex. « le sucre l'après-midi la plombe », « pas de gros call avant midi »), ses rythmes de vie (ex. « sieste en début d'après-midi », « sport souvent vers 19h »), ses MODES D'ÉCHEC RÉCURRENTS (ce qui déraille en boucle : « le travail déborde toujours », « saute le déjeuner quand il code », « les sorties décalent tout »), ses FAITS ÉMOTIONNELS/MOTIVATIONNELS (ce qui la rassure, la motive ou l'angoisse : « postuler la rend sereine », « le démarchage à froid l'angoisse ») et surtout ses REFUS ou PRÉFÉRENCES D'APPROCHE explicites (« pas à l'aise avec le réseau chaud, préfère les plateformes freelance X/Y qu'un ami lui a conseillées »). Ces refus/préférences sont DURABLES et PRIORITAIRES : consigne-les mot pour mot pour que le coach ne re-propose JAMAIS ce qu'elle a écarté et parte de ce qu'elle préfère. C'est ce qui permet au coach de proposer la bonne béquille sans le redemander. Ce sont des faits durables sur la personne, pas des tâches du jour.
-- LA SEMAINE ("weekPlan") : dès que la conversation ORGANISE explicitement les prochains jours — quel cap avancer quel jour et quelle demi-journée (« jeudi freelance le matin, l'aprèm les 15 noms ; vendredi job ; samedi terrain… ») — EXTRAIS ce plan dans "weekPlan". Un "slot" par créneau { day (lun→dim), part (matin/aprem/soir), objective = TITRE EXACT du cap, why = le pourquoi de l'ordre }, du JOUR PRÉSENT à dimanche, un seul cap par créneau, CLAIRSEMÉ (les demi-journées non citées restent des plages libres — ne les remplis pas). Ajoute une "landing" par cap placé : où il atterrit en fin de semaine si le plan est suivi (« ~200/300 invitations », « jalon "Observer propagation" atteint »), en douceur, jamais un score. Le coach parle des jours en toutes lettres → traduis « jeudi » en "jeu", « après-midi » en "aprem", etc. Ne fournis "weekPlan" QUE si la semaine a réellement été organisée dans l'échange ; sinon OMETS-le (le plan existant est conservé). N'invente ni jour ni cap.
+- LA SEMAINE ("weekPlan") : dès que la conversation ORGANISE explicitement les prochains jours — quel cap avancer quel jour et quelle demi-journée (« jeudi freelance le matin, l'aprèm les 15 noms ; vendredi job ; samedi terrain… ») — EXTRAIS ce plan dans "weekPlan". Un "slot" par créneau { day (lun→dim), part (matin/aprem/soir), objective = TITRE EXACT du cap, why = le pourquoi de l'ordre, goal = le mini-objectif concret et mesurable de la demi-journée, blocks = le découpage en sous-créneaux bornés (durée + mini-objectif) SI la conversation l'a précisé }, du JOUR PRÉSENT à dimanche, un seul cap par créneau, CLAIRSEMÉ (les demi-journées non citées restent des plages libres — ne les remplis pas). Ajoute une "landing" par cap placé : où il atterrit en fin de semaine si le plan est suivi (« ~200/300 invitations », « jalon "Observer propagation" atteint »), en douceur, jamais un score. Le coach parle des jours en toutes lettres → traduis « jeudi » en "jeu", « après-midi » en "aprem", etc. Ne fournis "weekPlan" QUE si la semaine a réellement été organisée dans l'échange ; sinon OMETS-le (le plan existant est conservé). N'invente ni jour ni cap.
 - "note" : une phrase, jamais culpabilisante, tournée vers la décision prise.
 - "contextNotes" : liste COMPLÈTE des mémos à garder (textes courts, pas des caps). Remplace la liste entière : garde ce qui reste pertinent, ajoute ce qui vient d'émerger, omets ce qui est résolu ou intégré ailleurs. Types de choses qui vont ici : tâche ponctuelle (« Hubvisory — un échange à explorer »), info en attente (« X répond en fin de semaine »), contrainte temporaire, idée à creuser plus tard, et les ENVIES/ACTIVITÉS ponctuelles à caser un jour (« un billard bientôt », « aller au ciné ce week-end ») — celles qui prennent un vrai créneau, pas les micro-tâches.`;
 
@@ -659,6 +659,24 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
                   type: "string",
                   description: "le pourquoi de l'ordre, court",
                 },
+                goal: {
+                  type: "string",
+                  description:
+                    "le mini-objectif concret et mesurable de cette demi-journée",
+                },
+                blocks: {
+                  type: "array",
+                  description:
+                    "découpage en sous-créneaux bornés (durée + mini-objectif), si la conversation l'a précisé",
+                  items: {
+                    type: "object",
+                    properties: {
+                      label: { type: "string" },
+                      goal: { type: "string" },
+                    },
+                    required: ["label"],
+                  },
+                },
               },
               required: ["day", "part", "objective"],
             },
@@ -696,6 +714,7 @@ LE CŒUR — L'ORDRE ET LES DÉPENDANCES :
 - Équilibre le RYTHME : n'empile pas deux gros blocs le même jour, alterne les caps, laisse respirer. Tu as la vue d'ensemble, sers-t'en pour un tempo tenable.
 - Tiens compte des échéances/horizons : ce qui se ferme bientôt passe plus tôt.
 - LE POURQUOI EST LE PRODUIT. Chaque créneau placé porte une raison courte et concrète qui aide à comprendre l'ordre. Un créneau sans « parce que » ne sert à rien.
+- CHAQUE CRÉNEAU PORTE UN MINI-OBJECTIF concret et mesurable ("goal") — de quoi savoir le soir si la demi-journée est réussie (« vider le stock d'acceptés + ~20 invitations »). Et quand c'est utile, découpe-le en 2 à 4 sous-créneaux bornés ("blocks"), chacun avec sa durée et son mini-objectif chiffré (« 2×30 min invitations · viser 20 » ; « 2×20 min réponses aux messages reçus »). Concret et chiffré, jamais vague, vulgarisé.
 
 RÈGLES D'OR (sinon on retombe dans l'agenda culpabilisant) :
 - CLAIRSEMÉ. Laisse BEAUCOUP de blanc. Ne remplis JAMAIS tous les créneaux : place seulement les moments qui comptent (en général 4 à 8 sur la semaine, souvent moins). Les demi-journées vides sont de VRAIES plages libres, pas des trous à combler. Une grille pleine est fausse et écrasante.
@@ -745,6 +764,30 @@ export const WEEK_TOOL: Anthropic.Tool = {
             why: {
               type: "string",
               description: "le pourquoi de l'ordre, court et concret",
+            },
+            goal: {
+              type: "string",
+              description:
+                "le MINI-OBJECTIF concret et mesurable de cette demi-journée (« vider le stock d'acceptés + ~20 invitations »)",
+            },
+            blocks: {
+              type: "array",
+              description:
+                "découpage concret en sous-créneaux bornés (2 à 4), chacun avec sa durée et son mini-objectif",
+              items: {
+                type: "object",
+                properties: {
+                  label: {
+                    type: "string",
+                    description: "durée + tâche (« 2×30 min invitations »)",
+                  },
+                  goal: {
+                    type: "string",
+                    description: "le mini-objectif chiffré du bloc (« viser 20 »)",
+                  },
+                },
+                required: ["label"],
+              },
             },
           },
           required: ["day", "part", "objective"],
