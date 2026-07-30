@@ -20,7 +20,7 @@ import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
 import InstallPrompt, { InstallBanner } from "@/components/InstallPrompt";
 
-type View = "clair" | "today" | "carte";
+type View = "clair" | "projets" | "plan" | "today";
 
 // Force un re-render au passage de minuit (et au retour sur l'onglet), pour que
 // tout ce qui se calcule à partir de `new Date()` pendant le rendu — la date
@@ -57,9 +57,6 @@ export default function Home() {
   const [toast, setToast] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [weekBusy, setWeekBusy] = useState(false);
-  const [carteMode, setCarteMode] = useState<
-    "chemins" | "semaines" | "planning"
-  >("chemins");
   // Plus d'atterrissage : pas d'animation de « pose » d'un tour à l'autre.
   const justLanded = false;
 
@@ -429,7 +426,7 @@ export default function Home() {
         </div>
       )}
 
-      {view === "carte" && (
+      {view === "projets" && (
         <>
           <Carte
             objectives={state.objectives}
@@ -441,14 +438,10 @@ export default function Home() {
             onUpdateHabits={onUpdateHabits}
             onClean={cleanMap}
             cleaning={cleaning}
-            weekPlan={state.weekPlan}
-            onGenerateWeek={generateWeek}
-            generatingWeek={weekBusy}
-            onModeChange={setCarteMode}
+            mode="chemins"
+            onSeeWeeks={() => setView("plan")}
           />
-          {/* En vue Semaine, on masque ces deux blocs : la grille se suffit. */}
-          {carteMode !== "planning" &&
-            (state.contextNotes?.length || state.understanding?.trim()) && (
+          {(state.contextNotes?.length || state.understanding?.trim()) && (
             <div className="mx-auto mt-6 max-w-2xl space-y-3">
               {state.understanding?.trim() && (
                 <UnderstandingSection
@@ -465,6 +458,22 @@ export default function Home() {
             </div>
           )}
         </>
+      )}
+
+      {view === "plan" && (
+        <Carte
+          objectives={state.objectives}
+          habits={state.habits}
+          onOpen={openClair}
+          onDeleteCap={onDeleteCap}
+          onReorderCap={onReorderCap}
+          onUpdateObjective={onUpdateObjective}
+          onUpdateHabits={onUpdateHabits}
+          weekPlan={state.weekPlan}
+          onGenerateWeek={generateWeek}
+          generatingWeek={weekBusy}
+          mode="planning"
+        />
       )}
 
       {/* Monté en permanence pour ne PAS perdre la conversation en changeant
@@ -1018,9 +1027,11 @@ function Header({
   const title =
     view === "today"
       ? "Aujourd'hui"
-      : view === "carte"
-        ? "La carte"
-        : "Au clair";
+      : view === "projets"
+        ? "Projets"
+        : view === "plan"
+          ? "Plan"
+          : "Au clair";
   return (
     <header className="mb-8 sm:mb-10">
       <div className="flex items-center justify-between gap-3">
@@ -1041,8 +1052,11 @@ function Header({
             </kbd>
           </span>
         </Tab>
-        <Tab active={view === "carte"} onClick={() => onView("carte")}>
-          La carte
+        <Tab active={view === "projets"} onClick={() => onView("projets")}>
+          Projets
+        </Tab>
+        <Tab active={view === "plan"} onClick={() => onView("plan")}>
+          Plan
         </Tab>
         <Tab active={view === "today"} onClick={() => onView("today")}>
           Aujourd&apos;hui
@@ -1073,7 +1087,7 @@ function Tab({
   );
 }
 
-// Navigation mobile : les 3 vues au pouce, comme une app installée.
+// Navigation mobile : les vues au pouce, comme une app installée.
 function BottomNav({
   view,
   onView,
@@ -1083,8 +1097,9 @@ function BottomNav({
 }) {
   const items: { v: View; label: string }[] = [
     { v: "clair", label: "Au clair" },
+    { v: "projets", label: "Projets" },
+    { v: "plan", label: "Plan" },
     { v: "today", label: "Aujourd'hui" },
-    { v: "carte", label: "La carte" },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">

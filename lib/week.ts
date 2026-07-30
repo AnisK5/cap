@@ -70,6 +70,7 @@ export interface RawWeekPlan {
     why?: string;
     goal?: string;
     blocks?: { label?: string; goal?: string }[];
+    weekOffset?: number;
   }[];
   landings?: { objective?: string; label?: string }[];
 }
@@ -87,7 +88,8 @@ export function normalizeWeekPlan(
     t ? idByTitle.get(t.trim().toLowerCase()) : undefined;
 
   const idx = todayDayIdx();
-  const allowed = new Set(
+  // Cette semaine : pas de jour passé. Semaine prochaine (offset 1) : tous les jours.
+  const allowedThisWeek = new Set(
     DAY_KEYS.slice(idx).flatMap((d) => PARTS.map((p) => slotKey(d, p))),
   );
 
@@ -96,10 +98,14 @@ export function normalizeWeekPlan(
   for (const s of raw.slots ?? []) {
     if (!s || typeof s.day !== "string" || typeof s.part !== "string") continue;
     const key = `${s.day}-${s.part}`;
-    if (!ALL_SLOTS.has(key) || !allowed.has(key) || seen.has(key)) continue;
+    if (!ALL_SLOTS.has(key)) continue;
+    const weekOffset = s.weekOffset === 1 ? 1 : 0;
+    if (weekOffset === 0 && !allowedThisWeek.has(key)) continue;
+    const dedupe = `${weekOffset}-${key}`;
+    if (seen.has(dedupe)) continue;
     const objectiveId = resolveId(s.objective);
     if (!objectiveId) continue;
-    seen.add(key);
+    seen.add(dedupe);
     const blocks: WeekBlock[] = (s.blocks ?? [])
       .filter((b) => b?.label?.trim())
       .map((b) => ({
@@ -113,6 +119,7 @@ export function normalizeWeekPlan(
       why: s.why?.trim() || undefined,
       goal: s.goal?.trim() || undefined,
       blocks: blocks.length ? blocks : undefined,
+      weekOffset: weekOffset === 1 ? 1 : undefined,
     });
   }
 

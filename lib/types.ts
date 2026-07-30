@@ -167,6 +167,7 @@ export interface WeekSlot {
   why?: string; // le pourquoi de l'ordre (« sert à… », « pendant que… »)
   goal?: string; // le mini-objectif de la demi-journée (« vider le stock d'acceptés + 20 invitations »)
   blocks?: WeekBlock[]; // le découpage concret (2×30 min…), facultatif
+  weekOffset?: number; // 0 = cette semaine (défaut), 1 = la semaine prochaine
 }
 
 // Où un cap arrive en fin de semaine si le plan est suivi — soft, jamais un

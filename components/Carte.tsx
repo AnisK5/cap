@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { Flow, FlowState, Habit, Objective, Step, WeekPlan } from "@/lib/types";
 import { newId } from "@/lib/merge";
 import {
@@ -43,17 +43,14 @@ interface CarteProps {
   weekPlan?: WeekPlan;
   onGenerateWeek?: () => void;
   generatingWeek?: boolean;
-  onModeChange?: (mode: "chemins" | "semaines" | "planning") => void;
+  // Le mode est piloté par l'onglet de la page (« Projets » / « Plan »), plus
+  // par un sous-toggle interne.
+  mode?: "chemins" | "semaines" | "planning";
+  onSeeWeeks?: () => void;
 }
 
 export default function Carte(props: CarteProps) {
-  const [mode, setMode] = useState<"chemins" | "semaines" | "planning">(
-    "chemins",
-  );
-  const { onModeChange } = props;
-  useEffect(() => {
-    onModeChange?.(mode);
-  }, [mode, onModeChange]);
+  const mode = props.mode ?? "chemins";
 
   if (props.objectives.length === 0) {
     return (
@@ -79,8 +76,9 @@ export default function Carte(props: CarteProps) {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-3">
-        {props.onClean ? (
+      {/* Le bouton « Nettoyer » ne concerne que la carte des projets. */}
+      {mode === "chemins" && props.onClean && (
+        <div className="mb-5">
           <button
             onClick={props.onClean}
             disabled={props.cleaning}
@@ -89,23 +87,13 @@ export default function Carte(props: CarteProps) {
           >
             {props.cleaning ? "Nettoyage…" : "✨ Nettoyer"}
           </button>
-        ) : (
-          <span />
-        )}
-        <div className="inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
-          <ModeTab active={mode === "chemins"} onClick={() => setMode("chemins")}>
-            Chemins
-          </ModeTab>
-          <ModeTab active={mode === "planning"} onClick={() => setMode("planning")}>
-            Semaine
-          </ModeTab>
         </div>
-      </div>
+      )}
       {mode === "chemins" ? (
         <PathsView
           {...props}
           objectives={sorted}
-          onSeeWeeks={() => setMode("planning")}
+          onSeeWeeks={props.onSeeWeeks ?? (() => {})}
           colorOf={(id) => capColor(props.objectives, id)}
           onReorderCap={props.onReorderCap}
         />
@@ -148,12 +136,17 @@ function WeekView({
   onGenerate?: () => void;
   generating?: boolean;
 }) {
+  const [weekView, setWeekView] = useState<0 | 1>(0);
   const objById = new Map(objectives.map((o) => [o.id, o]));
   const idx = todayDayIdx();
-  const slotByKey = new Map(
-    (weekPlan?.slots ?? []).map((s) => [slotKey(s.day, s.part), s]),
-  );
-  const hasPlan = !!weekPlan && weekPlan.slots.length > 0;
+  // La semaine affichée : cette semaine (aujourd'hui + jours passés grisés) ou la
+  // prochaine (les 7 jours, sans « aujourd'hui » ni jour passé).
+  const activeIdx = weekView === 0 ? idx : -1;
+  const allSlots = weekPlan?.slots ?? [];
+  const viewSlots = allSlots.filter((s) => (s.weekOffset ?? 0) === weekView);
+  const slotByKey = new Map(viewSlots.map((s) => [slotKey(s.day, s.part), s]));
+  const hasPlan = allSlots.length > 0;
+  const hasThisView = viewSlots.length > 0;
 
   return (
     <div>
@@ -183,6 +176,35 @@ function WeekView({
         </div>
       ) : (
         <>
+          <div className="mb-3 inline-flex gap-0.5 rounded-full border border-line bg-surface p-0.5 text-xs shadow-sm">
+            <button
+              onClick={() => setWeekView(0)}
+              className={`rounded-full px-3 py-1 transition-colors ${
+                weekView === 0 ? "bg-ink text-canvas" : "text-muted hover:text-ink"
+              }`}
+            >
+              Cette semaine
+            </button>
+            <button
+              onClick={() => setWeekView(1)}
+              className={`rounded-full px-3 py-1 transition-colors ${
+                weekView === 1 ? "bg-ink text-canvas" : "text-muted hover:text-ink"
+              }`}
+            >
+              Semaine prochaine
+            </button>
+          </div>
+
+          {!hasThisView ? (
+            <div className="rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-10 text-center">
+              <p className="mx-auto max-w-md text-muted">
+                {weekView === 1
+                  ? "Pas encore de semaine prochaine posée. Demande au coach de la préparer — surtout utile en fin de semaine."
+                  : "Rien de posé cette semaine pour l'instant."}
+              </p>
+            </div>
+          ) : (
+            <>
           <div className="overflow-x-auto pb-1">
             <div className="min-w-[64rem]">
               {/* En-tête des jours */}
@@ -192,15 +214,15 @@ function WeekView({
                   <div
                     key={d}
                     className={`text-center text-xs font-semibold uppercase tracking-wide ${
-                      i === idx
+                      i === activeIdx
                         ? "text-cap-ink"
-                        : i < idx
+                        : i < activeIdx
                           ? "text-faint/50"
                           : "text-faint"
                     }`}
                   >
                     {DAY_SHORT[d]}
-                    {i === idx && (
+                    {i === activeIdx && (
                       <span className="ml-1 font-normal normal-case text-cap">
                         · auj.
                       </span>
@@ -220,8 +242,8 @@ function WeekView({
                   </div>
                   {DAY_KEYS.map((d, i) => {
                     const s = slotByKey.get(slotKey(d, part));
-                    const past = i < idx;
-                    const isToday = i === idx;
+                    const past = i < activeIdx;
+                    const isToday = i === activeIdx;
                     if (!s) {
                       return (
                         <div
@@ -299,7 +321,7 @@ function WeekView({
             y caser.
           </p>
 
-          {weekPlan?.landings && weekPlan.landings.length > 0 && (
+          {weekView === 0 && weekPlan?.landings && weekPlan.landings.length > 0 && (
             <div className="mt-7">
               <p className="text-xs uppercase tracking-[0.18em] text-faint">
                 Où ça te mène, à ce rythme
@@ -329,30 +351,11 @@ function WeekView({
               </ul>
             </div>
           )}
+            </>
+          )}
         </>
       )}
     </div>
-  );
-}
-
-function ModeTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3 py-1 transition-colors ${
-        active ? "bg-ink text-canvas" : "text-muted hover:text-ink"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 

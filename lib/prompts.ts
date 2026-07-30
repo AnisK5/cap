@@ -214,7 +214,9 @@ function renderWeekPlan(state: CapState, timeZone?: string): string {
   const idx = todayIdxInTz(timeZone);
   const lines = DAY_KEYS.slice(idx).map((d) => {
     const parts = PARTS.map((p) => {
-      const s = wp.slots.find((x) => x.day === d && x.part === p);
+      const s = wp.slots.find(
+        (x) => (x.weekOffset ?? 0) === 0 && x.day === d && x.part === p,
+      );
       if (!s) return null;
       const t = titleById.get(s.objectiveId) ?? "?";
       return `${p}: ${t}${s.why ? ` (${s.why})` : ""}`;
@@ -222,12 +224,22 @@ function renderWeekPlan(state: CapState, timeZone?: string): string {
     const label = DAY_NAMES[d] + (d === DAY_KEYS[idx] ? " (AUJOURD'HUI)" : "");
     return parts.length ? `- ${label} — ${parts.join(" · ")}` : `- ${label} — libre`;
   });
+  // Semaine prochaine, si posée.
+  const next = wp.slots.filter((s) => s.weekOffset === 1);
+  const nextLine = next.length
+    ? `\nSemaine prochaine (déjà posée) : ${next
+        .map(
+          (s) =>
+            `${DAY_NAMES[s.day]} ${s.part} ${titleById.get(s.objectiveId) ?? "?"}`,
+        )
+        .join(" ; ")}`
+    : "";
   const landings = wp.landings?.length
     ? `\nAtterrissages visés : ${wp.landings
         .map((l) => `${titleById.get(l.objectiveId) ?? "?"} → ${l.label}`)
         .join(" ; ")}`
     : "";
-  return `${lines.join("\n")}${landings}`;
+  return `${lines.join("\n")}${nextLine}${landings}`;
 }
 
 export function chatSystemPrompt(
@@ -368,7 +380,7 @@ export function reconcileStateSummary(state: CapState): string {
     ? `\n\nPlan de semaine actuel (si la conversation le modifie, renvoie la LISTE COMPLÈTE à jour dans "weekPlan", pas juste le changement) :\n${state.weekPlan.slots
         .map(
           (s) =>
-            `- ${s.day}-${s.part} : ${titleById.get(s.objectiveId) ?? "?"}${s.goal ? ` · ${s.goal}` : ""}`,
+            `- ${s.day}-${s.part}${s.weekOffset === 1 ? " (sem. prochaine)" : ""} : ${titleById.get(s.objectiveId) ?? "?"}${s.goal ? ` · ${s.goal}` : ""}`,
         )
         .join("\n")}`
     : "";
@@ -401,7 +413,7 @@ Règles :
 - PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
 - CAPTURE SES PRÉFÉRENCES ET LEVIERS DE MOTIVATION dans "understanding" dès qu'ils émergent, pour que le coach s'en serve sans les redemander : ce qui la motive (ex. « carbure aux créneaux bornés avec stop dur »), CE QUI LA BOOSTE (ex. « un matcha pour démarrer », « une marche pour se remettre en route »), CE QU'ELLE PRÉFÈRE ÉVITER (ex. « le sucre l'après-midi la plombe », « pas de gros call avant midi »), ses rythmes de vie (ex. « sieste en début d'après-midi », « sport souvent vers 19h »), ses MODES D'ÉCHEC RÉCURRENTS (ce qui déraille en boucle : « le travail déborde toujours », « saute le déjeuner quand il code », « les sorties décalent tout »), ses FAITS ÉMOTIONNELS/MOTIVATIONNELS (ce qui la rassure, la motive ou l'angoisse : « postuler la rend sereine », « le démarchage à froid l'angoisse ») et surtout ses REFUS ou PRÉFÉRENCES D'APPROCHE explicites (« pas à l'aise avec le réseau chaud, préfère les plateformes freelance X/Y qu'un ami lui a conseillées »). Ces refus/préférences sont DURABLES et PRIORITAIRES : consigne-les mot pour mot pour que le coach ne re-propose JAMAIS ce qu'elle a écarté et parte de ce qu'elle préfère. C'est ce qui permet au coach de proposer la bonne béquille sans le redemander. Ce sont des faits durables sur la personne, pas des tâches du jour.
-- LA SEMAINE ("weekPlan") : dès que la conversation ORGANISE explicitement les prochains jours — quel cap avancer quel jour et quelle demi-journée (« jeudi freelance le matin, l'aprèm les 15 noms ; vendredi job ; samedi terrain… ») — EXTRAIS ce plan dans "weekPlan". Un "slot" par créneau { day (lun→dim), part (matin/aprem/soir), objective = TITRE EXACT du cap, why = le pourquoi de l'ordre, goal = le mini-objectif concret et mesurable de la demi-journée, blocks = le découpage en sous-créneaux bornés (durée + mini-objectif) SI la conversation l'a précisé }, du JOUR PRÉSENT à dimanche, un seul cap par créneau, CLAIRSEMÉ (les demi-journées non citées restent des plages libres — ne les remplis pas). Ajoute une "landing" par cap placé : où il atterrit en fin de semaine si le plan est suivi (« ~200/300 invitations », « jalon "Observer propagation" atteint »), en douceur, jamais un score. Le coach parle des jours en toutes lettres → traduis « jeudi » en "jeu", « après-midi » en "aprem", etc. Ne fournis "weekPlan" QUE si la semaine a réellement été organisée dans l'échange ; sinon OMETS-le (le plan existant est conservé). N'invente ni jour ni cap. MODIFICATION (crucial) : si un « Plan de semaine actuel » est donné ci-dessus et que la conversation le CHANGE (déplace/remplace/retire un créneau, ajoute un jour), renvoie la LISTE COMPLÈTE des créneaux à jour — TOUS les créneaux conservés + la modification — JAMAIS seulement le créneau changé, sinon tu effaces tout le reste de la semaine.
+- LA SEMAINE ("weekPlan") : dès que la conversation ORGANISE explicitement les prochains jours — quel cap avancer quel jour et quelle demi-journée (« jeudi freelance le matin, l'aprèm les 15 noms ; vendredi job ; samedi terrain… ») — EXTRAIS ce plan dans "weekPlan". Un "slot" par créneau { day (lun→dim), part (matin/aprem/soir), objective = TITRE EXACT du cap, why = le pourquoi de l'ordre, goal = le mini-objectif concret et mesurable de la demi-journée, blocks = le découpage en sous-créneaux bornés (durée + mini-objectif) SI la conversation l'a précisé }, du JOUR PRÉSENT à dimanche, un seul cap par créneau, CLAIRSEMÉ (les demi-journées non citées restent des plages libres — ne les remplis pas). Ajoute une "landing" par cap placé : où il atterrit en fin de semaine si le plan est suivi (« ~200/300 invitations », « jalon "Observer propagation" atteint »), en douceur, jamais un score. Le coach parle des jours en toutes lettres → traduis « jeudi » en "jeu", « après-midi » en "aprem", etc. Ne fournis "weekPlan" QUE si la semaine a réellement été organisée dans l'échange ; sinon OMETS-le (le plan existant est conservé). N'invente ni jour ni cap. MODIFICATION (crucial) : si un « Plan de semaine actuel » est donné ci-dessus et que la conversation le CHANGE (déplace/remplace/retire un créneau, ajoute un jour), renvoie la LISTE COMPLÈTE des créneaux à jour — TOUS les créneaux conservés + la modification — JAMAIS seulement le créneau changé, sinon tu effaces tout le reste de la semaine. Chaque créneau porte "weekOffset" : 0 = cette semaine (défaut), 1 = la semaine prochaine (si la personne parle des jours d'après / de la semaine suivante).
 - "note" : une phrase, jamais culpabilisante, tournée vers la décision prise.
 - "contextNotes" : liste COMPLÈTE des mémos à garder (textes courts, pas des caps). Remplace la liste entière : garde ce qui reste pertinent, ajoute ce qui vient d'émerger, omets ce qui est résolu ou intégré ailleurs. Types de choses qui vont ici : tâche ponctuelle (« Hubvisory — un échange à explorer »), info en attente (« X répond en fin de semaine »), contrainte temporaire, idée à creuser plus tard, et les ENVIES/ACTIVITÉS ponctuelles à caser un jour (« un billard bientôt », « aller au ciné ce week-end ») — celles qui prennent un vrai créneau, pas les micro-tâches.`;
 
@@ -688,6 +700,12 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
                     required: ["label"],
                   },
                 },
+                weekOffset: {
+                  type: "integer",
+                  enum: [0, 1],
+                  description:
+                    "0 = cette semaine (défaut), 1 = la semaine prochaine",
+                },
               },
               required: ["day", "part", "objective"],
             },
@@ -731,7 +749,7 @@ RÈGLES D'OR (sinon on retombe dans l'agenda culpabilisant) :
 - CLAIRSEMÉ. Laisse BEAUCOUP de blanc. Ne remplis JAMAIS tous les créneaux : place seulement les moments qui comptent (en général 4 à 8 sur la semaine, souvent moins). Les demi-journées vides sont de VRAIES plages libres, pas des trous à combler. Une grille pleine est fausse et écrasante.
 - Densité ADAPTÉE : 1 seul cap actif → très clairsemé, quelques créneaux suffisent. Plusieurs caps qui se disputent le temps → plus riche, mais toujours respirant.
 - UN SEUL cap par créneau.
-- Du JOUR PRÉSENT à dimanche uniquement. Ne place JAMAIS rien dans un jour déjà passé.
+- Cette semaine (weekOffset 0, le défaut) : du JOUR PRÉSENT à dimanche uniquement, jamais un jour déjà passé. Quand il ne reste presque plus de jours cette semaine (on est jeudi/vendredi ou plus tard), planifie AUSSI le début de la SEMAINE PROCHAINE (weekOffset 1, lundi→dimanche) pour que la personne voie ce qui vient — sinon elle se retrouve devant une grille quasi vide.
 - Zéro culpabilité, zéro pression, zéro langage de retard. C'est une proposition pour s'orienter, pas un contrat. Tutoiement, court, pas de markdown, pas d'émoji.
 
 LA PROJECTION (remplace la frise) — "landings" : pour CHAQUE cap que tu places, projette où il ATTERRIT en fin de semaine SI le plan est suivi. C'est une INTENTION douce, jamais un score : préfixe par « ~ » ou « vers ».
@@ -799,6 +817,12 @@ export const WEEK_TOOL: Anthropic.Tool = {
                 },
                 required: ["label"],
               },
+            },
+            weekOffset: {
+              type: "integer",
+              enum: [0, 1],
+              description:
+                "0 = cette semaine (défaut), 1 = la semaine prochaine (utile en fin de semaine, quand les prochains jours débordent sur la semaine d'après)",
             },
           },
           required: ["day", "part", "objective"],
