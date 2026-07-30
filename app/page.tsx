@@ -176,6 +176,27 @@ export default function Home() {
     [state, save, onTogglePriority],
   );
 
+  // Cocher un sous-créneau du plan du jour (une victoire) : on flippe son "done"
+  // dans le créneau de cette semaine correspondant.
+  const onToggleBlock = useCallback(
+    (day: string, part: string, blockIndex: number) => {
+      const wp = state.weekPlan;
+      if (!wp) return;
+      const slots = wp.slots.map((s) =>
+        (s.weekOffset ?? 0) === 0 && s.day === day && s.part === part
+          ? {
+              ...s,
+              blocks: (s.blocks ?? []).map((b, i) =>
+                i === blockIndex ? { ...b, done: !b.done } : b,
+              ),
+            }
+          : s,
+      );
+      save({ ...state, weekPlan: { ...wp, slots } });
+    },
+    [state, save],
+  );
+
   // Cocher/décocher rétroactivement un créneau d'un jour PASSÉ : un oubli de
   // case ne doit pas figer un jour à jamais. On écrit dans l'historique, sur la
   // même liste que celle affichée (dayPlan si présent, sinon priorities).
@@ -271,7 +292,18 @@ export default function Home() {
   // Les victoires du jour, EN DIRECT : un cerveau TDA sous-enregistre ce qu'il
   // fait — on le lui met sous les yeux, en cadrage positif, qui monte à chaque
   // coche. Série = jours passés consécutifs avec ≥1 fait, + aujourd'hui.
-  const doneToday = hasDay ? dayDone.length : doneItems.length;
+  // Quand le plan du jour vient de la semaine, les victoires = les sous-créneaux
+  // cochés ; sinon on retombe sur le dayPlan / priorités.
+  const dayFromWeek = todayWeekSlots.length > 0;
+  const doneTodayBlocks = todayWeekSlots.reduce(
+    (n, s) => n + (s.blocks?.filter((b) => b.done).length ?? 0),
+    0,
+  );
+  const doneToday = dayFromWeek
+    ? doneTodayBlocks
+    : hasDay
+      ? dayDone.length
+      : doneItems.length;
   const histForStreak = state.history ?? [];
   let pastStreak = 0;
   for (let i = histForStreak.length - 1; i >= 0; i--) {
@@ -332,9 +364,17 @@ export default function Home() {
                   même de regarder ce qu'il reste. */}
               <WinsBanner done={doneToday} streak={streakToday} />
 
-              {/* Le plan du jour issu de la semaine : objectifs + sous-créneaux. */}
-              <TodayPlan slots={todayWeekSlots} objectives={state.objectives} />
+              {/* Le plan du jour issu de la semaine : objectifs + sous-créneaux
+                  cochables (les victoires). Quand il existe, il REMPLACE le
+                  hero/timeline pour éviter les doublons. */}
+              <TodayPlan
+                slots={todayWeekSlots}
+                objectives={state.objectives}
+                onToggle={onToggleBlock}
+              />
 
+              {!dayFromWeek && (
+                <>
               {/* Les acquis du jour, mis en avant : la récompense d'abord,
                   avant le reste-à-faire. */}
               {hasDay
@@ -409,6 +449,8 @@ export default function Home() {
                       onToggle={onTogglePriority}
                     />
                   )}
+                </>
+              )}
                 </>
               )}
 
@@ -1033,9 +1075,11 @@ function ImportBanner({ onImport }: { onImport: (s: CapState) => void }) {
 function TodayPlan({
   slots,
   objectives,
+  onToggle,
 }: {
   slots: WeekSlot[];
   objectives: Objective[];
+  onToggle: (day: string, part: string, blockIndex: number) => void;
 }) {
   if (slots.length === 0) return null;
   const objById = new Map(objectives.map((o) => [o.id, o]));
@@ -1078,18 +1122,33 @@ function TodayPlan({
               {s.blocks && s.blocks.length > 0 && (
                 <ul className="mt-2.5 flex flex-col gap-1.5">
                   {s.blocks.map((b, i) => (
-                    <li
-                      key={i}
-                      className="flex items-baseline gap-2 rounded-lg bg-canvas/60 px-3 py-2 text-sm"
-                    >
-                      <span
-                        className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ background: color }}
-                      />
-                      <span>
-                        <span className="font-medium text-ink">{b.label}</span>
-                        {b.goal && <span className="text-muted"> · {b.goal}</span>}
-                      </span>
+                    <li key={i}>
+                      <button
+                        onClick={() => onToggle(s.day, s.part, i)}
+                        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                          b.done
+                            ? "bg-cap-soft/40"
+                            : "bg-canvas/60 hover:bg-canvas"
+                        }`}
+                      >
+                        <span
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[0.6rem] text-canvas"
+                          style={{
+                            borderColor: color,
+                            background: b.done ? color : undefined,
+                          }}
+                        >
+                          {b.done ? "✓" : ""}
+                        </span>
+                        <span className={b.done ? "text-faint line-through" : ""}>
+                          <span className={b.done ? "" : "font-medium text-ink"}>
+                            {b.label}
+                          </span>
+                          {b.goal && (
+                            <span className="text-muted"> · {b.goal}</span>
+                          )}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>

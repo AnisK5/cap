@@ -158,6 +158,7 @@ export type WeekPart = "matin" | "aprem" | "soir";
 export interface WeekBlock {
   label: string; // le bloc borné (durée + tâche)
   goal?: string; // le mini-objectif concret et mesurable
+  done?: boolean; // coché par la personne (une victoire du jour)
 }
 
 export interface WeekSlot {

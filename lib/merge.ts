@@ -429,7 +429,24 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
   let weekPlan = state.weekPlan;
   if (r.weekPlan !== undefined) {
     const wp = normalizeWeekPlan(r.weekPlan, objectives);
-    if (wp.slots.length > 0) weekPlan = wp;
+    if (wp.slots.length > 0) {
+      // Reporter les blocs déjà cochés (le modèle ne connaît pas "done") : on
+      // matche par jour/moment/semaine/label pour ne pas effacer une victoire.
+      const doneKeys = new Set<string>();
+      for (const s of state.weekPlan?.slots ?? [])
+        for (const b of s.blocks ?? [])
+          if (b.done)
+            doneKeys.add(`${s.weekOffset ?? 0}-${s.day}-${s.part}-${b.label}`);
+      wp.slots = wp.slots.map((s) => ({
+        ...s,
+        blocks: s.blocks?.map((b) =>
+          doneKeys.has(`${s.weekOffset ?? 0}-${s.day}-${s.part}-${b.label}`)
+            ? { ...b, done: true }
+            : b,
+        ),
+      }));
+      weekPlan = wp;
+    }
   }
 
   return {
