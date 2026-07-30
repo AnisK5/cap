@@ -382,16 +382,44 @@ function Bubble({
       </div>
     );
   }
+  // Le coach écrit en texte brut : on le rend SCANNABLE plutôt qu'en mur —
+  // paragraphes espacés, un liseré coloré pour ancrer le message, et le pas
+  // concret (ligne « → … ») sorti en pastille d'action.
+  const paras = content.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   return (
-    <div className="animate-rise max-w-[92%] self-start">
-      <p className="whitespace-pre-wrap text-[1.05rem] leading-relaxed text-ink">
-        {content}
-        {busy && !content && (
-          <span className="animate-breathe text-faint">·&nbsp;·&nbsp;·</span>
-        )}
-      </p>
+    <div className="animate-rise max-w-[92%] self-start border-l-2 border-cap/30 pl-3.5">
+      {busy && !content ? (
+        <span className="animate-breathe text-lg text-faint">
+          ·&nbsp;·&nbsp;·
+        </span>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {paras.map((para, i) =>
+            /^→/.test(para) ? (
+              <p
+                key={i}
+                className="flex gap-2 rounded-xl bg-cap-soft/70 px-3.5 py-2.5 text-[1.02rem] font-medium leading-relaxed text-cap-ink"
+              >
+                <span aria-hidden className="text-cap">
+                  →
+                </span>
+                <span className="whitespace-pre-wrap">
+                  {para.replace(/^→\s*/, "")}
+                </span>
+              </p>
+            ) : (
+              <p
+                key={i}
+                className="whitespace-pre-wrap text-[1.05rem] leading-relaxed text-ink"
+              >
+                {para}
+              </p>
+            ),
+          )}
+        </div>
+      )}
       {time && content && (
-        <p className="mt-1 text-xs tabular-nums text-faint">{time}</p>
+        <p className="mt-1.5 text-xs tabular-nums text-faint">{time}</p>
       )}
     </div>
   );
