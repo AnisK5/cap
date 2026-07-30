@@ -11,6 +11,7 @@ import type {
   Priority,
   Step,
 } from "./types";
+import { normalizeWeekPlan, type RawWeekPlan } from "./week";
 
 // Fusion de la réconciliation dans l'état — fonctions PURES, exécutées côté
 // serveur (source de vérité unique, pas de course avec le client).
@@ -113,6 +114,9 @@ export interface Reconciliation {
   }[];
   understanding?: string;
   note?: string;
+  // Le plan macro de la semaine, extrait quand la conversation ORGANISE les
+  // prochains jours (« jeudi freelance, vendredi job… »). Cap désigné par titre.
+  weekPlan?: RawWeekPlan;
 }
 
 type ProposedSteps = NonNullable<
@@ -419,6 +423,15 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
       ? linkDayPlan(priorities, habits, r.dayPlan, state.dayPlan)
       : state.dayPlan;
 
+  // Le weekPlan ne change QUE si la conversation a réellement organisé la
+  // semaine (comme le dayPlan) ; un plan sans créneau valide n'écrase pas
+  // l'existant, pour ne pas vider la grille par accident.
+  let weekPlan = state.weekPlan;
+  if (r.weekPlan !== undefined) {
+    const wp = normalizeWeekPlan(r.weekPlan, objectives);
+    if (wp.slots.length > 0) weekPlan = wp;
+  }
+
   return {
     ...state,
     objectives,
@@ -434,6 +447,7 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
     contextNotes,
     habits,
     dayPlan,
+    weekPlan,
   };
 }
 

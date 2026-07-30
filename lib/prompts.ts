@@ -338,6 +338,7 @@ Règles :
 - PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
 - CAPTURE SES PRÉFÉRENCES ET LEVIERS DE MOTIVATION dans "understanding" dès qu'ils émergent, pour que le coach s'en serve sans les redemander : ce qui la motive (ex. « carbure aux créneaux bornés avec stop dur »), CE QUI LA BOOSTE (ex. « un matcha pour démarrer », « une marche pour se remettre en route »), CE QU'ELLE PRÉFÈRE ÉVITER (ex. « le sucre l'après-midi la plombe », « pas de gros call avant midi »), ses rythmes de vie (ex. « sieste en début d'après-midi », « sport souvent vers 19h »), et ses MODES D'ÉCHEC RÉCURRENTS (ce qui déraille en boucle : « le travail déborde toujours », « saute le déjeuner quand il code », « les sorties décalent tout ») — c'est ce qui permet au coach de proposer la bonne béquille sans le redemander. Ce sont des faits durables sur la personne, pas des tâches du jour.
+- LA SEMAINE ("weekPlan") : dès que la conversation ORGANISE explicitement les prochains jours — quel cap avancer quel jour et quelle demi-journée (« jeudi freelance le matin, l'aprèm les 15 noms ; vendredi job ; samedi terrain… ») — EXTRAIS ce plan dans "weekPlan". Un "slot" par créneau { day (lun→dim), part (matin/aprem/soir), objective = TITRE EXACT du cap, why = le pourquoi de l'ordre }, du JOUR PRÉSENT à dimanche, un seul cap par créneau, CLAIRSEMÉ (les demi-journées non citées restent des plages libres — ne les remplis pas). Ajoute une "landing" par cap placé : où il atterrit en fin de semaine si le plan est suivi (« ~200/300 invitations », « jalon "Observer propagation" atteint »), en douceur, jamais un score. Le coach parle des jours en toutes lettres → traduis « jeudi » en "jeu", « après-midi » en "aprem", etc. Ne fournis "weekPlan" QUE si la semaine a réellement été organisée dans l'échange ; sinon OMETS-le (le plan existant est conservé). N'invente ni jour ni cap.
 - "note" : une phrase, jamais culpabilisante, tournée vers la décision prise.
 - "contextNotes" : liste COMPLÈTE des mémos à garder (textes courts, pas des caps). Remplace la liste entière : garde ce qui reste pertinent, ajoute ce qui vient d'émerger, omets ce qui est résolu ou intégré ailleurs. Types de choses qui vont ici : tâche ponctuelle (« Hubvisory — un échange à explorer »), info en attente (« X répond en fin de semaine »), contrainte temporaire, idée à creuser plus tard, et les ENVIES/ACTIVITÉS ponctuelles à caser un jour (« un billard bientôt », « aller au ciné ce week-end ») — celles qui prennent un vrai créneau, pas les micro-tâches.`;
 
@@ -576,6 +577,54 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
       note: {
         type: "string",
         description: "une phrase élégante résumant ce qui a changé aujourd'hui",
+      },
+      weekPlan: {
+        type: "object",
+        description:
+          "Le plan MACRO de la semaine, UNIQUEMENT quand la conversation a organisé les prochains jours (quel cap avancer quel jour/demi-journée). Sinon, OMETS ce champ (le plan existant est conservé).",
+        properties: {
+          intro: {
+            type: "string",
+            description: "1-2 phrases donnant la logique d'ensemble de la semaine",
+          },
+          slots: {
+            type: "array",
+            description:
+              "Les créneaux, du jour présent à dimanche, un seul cap par créneau, clairsemé (les créneaux vides = plages libres).",
+            items: {
+              type: "object",
+              properties: {
+                day: {
+                  type: "string",
+                  enum: ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"],
+                },
+                part: { type: "string", enum: ["matin", "aprem", "soir"] },
+                objective: {
+                  type: "string",
+                  description: "titre EXACT du cap placé sur ce créneau",
+                },
+                why: {
+                  type: "string",
+                  description: "le pourquoi de l'ordre, court",
+                },
+              },
+              required: ["day", "part", "objective"],
+            },
+          },
+          landings: {
+            type: "array",
+            description:
+              "Où chaque cap placé atterrit en fin de semaine (intention douce) : « ~200/300 invitations » ou « jalon X atteint ».",
+            items: {
+              type: "object",
+              properties: {
+                objective: { type: "string", description: "titre EXACT du cap" },
+                label: { type: "string" },
+              },
+              required: ["objective", "label"],
+            },
+          },
+        },
       },
     },
   },
