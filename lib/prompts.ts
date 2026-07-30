@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { CapState } from "./types";
+import { DAY_KEYS, DAY_NAMES, PARTS } from "./week";
 
 // Tout ce que les LLM lisent vit ICI : system prompt de la conversation,
 // cues d'ouverture/atterrissage, instruction + outil de réconciliation, et
@@ -183,6 +184,52 @@ function renderState(state: CapState, timeZone?: string): string {
   return parts.join("\n\n");
 }
 
+// Index du jour courant (lundi=0) dans le fuseau du client (le serveur vit en
+// UTC — sans ça « aujourd'hui » peut sauter d'un jour autour de minuit).
+function todayIdxInTz(timeZone?: string): number {
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(new Date());
+  const map: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+  return map[wd] ?? 0;
+}
+
+// Rend le plan de semaine actuel pour que le coach le TIENNE et en fasse
+// découler la journée. Vide → invite à le poser.
+function renderWeekPlan(state: CapState, timeZone?: string): string {
+  const wp = state.weekPlan;
+  if (!wp || wp.slots.length === 0) {
+    return "Aucune semaine posée. Si plusieurs caps se disputent le temps, ou qu'elle n'a pas de cap clair pour les jours à venir, POSE-la de toi-même.";
+  }
+  const titleById = new Map(state.objectives.map((o) => [o.id, o.title]));
+  const idx = todayIdxInTz(timeZone);
+  const lines = DAY_KEYS.slice(idx).map((d) => {
+    const parts = PARTS.map((p) => {
+      const s = wp.slots.find((x) => x.day === d && x.part === p);
+      if (!s) return null;
+      const t = titleById.get(s.objectiveId) ?? "?";
+      return `${p}: ${t}${s.why ? ` (${s.why})` : ""}`;
+    }).filter(Boolean);
+    const label = DAY_NAMES[d] + (d === DAY_KEYS[idx] ? " (AUJOURD'HUI)" : "");
+    return parts.length ? `- ${label} — ${parts.join(" · ")}` : `- ${label} — libre`;
+  });
+  const landings = wp.landings?.length
+    ? `\nAtterrissages visés : ${wp.landings
+        .map((l) => `${titleById.get(l.objectiveId) ?? "?"} → ${l.label}`)
+        .join(" ; ")}`
+    : "";
+  return `${lines.join("\n")}${landings}`;
+}
+
 export function chatSystemPrompt(
   state: CapState,
   timeZone?: string,
@@ -255,6 +302,8 @@ AMPLEUR ≠ RUMINATION : plusieurs chantiers réels = créatif — valide et cad
 
 MODÉLISER LA CARTE (le détail est porté par la réconciliation — ici l'essentiel) : cap = projet sur plusieurs semaines à phases, jamais une action isolée (un email, une réunion = priorité). Trois natures, ne mélange jamais : ÉTAPE = jalon franchissable une fois (« CV retravaillé »), pas un comportement ni une performance ; FLUX = débit continu jamais fini (« Sourcing ») ; ATTENTE = flux bloqué par une condition externe, seulement si on NE PEUT PAS agir (des fruits qui mûrissent ≠ une attente). Logique ≠ aujourd'hui (« 8-10 boîtes » = tranche → priorité, pas la structure). Le calendrier n'appartient pas à la carte. Un cap avec des flux mais aucune étape → propose le squelette.
 
+POSSÉDER LA SEMAINE (le macro, pas seulement le jour) : le cerveau TDA voit aujourd'hui mais n'arrive pas à se représenter la forme des prochains jours ni l'ORDRE dans lequel avancer ses caps — c'est TOI qui la tiens. Quand plusieurs caps se disputent le temps, en début de semaine, ou quand elle n'a pas de cap clair pour les jours à venir, POSE la semaine de toi-même, sans qu'elle le demande : quel cap avancer quel jour et quelle demi-journée (matin/aprem/soir), et POURQUOI cet ordre (dépendances, temps morts d'attente à exploiter, rythme tenable), du jour présent à dimanche, CLAIRSEMÉ (les demi-journées non citées restent des plages libres) ; ajoute où chaque cap atterrit en fin de semaine. Tiens-la à jour quand le contexte bouge. Et fais DÉCOULER la journée d'aujourd'hui de cette semaine : le focus du jour, c'est ce que la semaine prévoyait aujourd'hui. Une fois posée, elle est enregistrée — inutile de la réciter à chaque message ; réfère-t'y et avance.
+
 ORGANISER LA JOURNÉE : chaque créneau porte une deadline du jour à la bonne granularité (heure précise seulement si contrainte réelle — « avant ta réunion de 14h » —, sinon une ancre « avant midi » / « avant ce soir ») et son ENJEU (pourquoi aujourd'hui, en impact sur l'objectif : « chaque jour de sourcing décale ton 1er entretien d'autant »). Jamais un planning minuté. Journée déjà dérapée → zéro dette, on recale ce qui reste.
 
 SES ENVIES / ACTIVITÉS À CASER : tu tiens aussi ses envies ponctuelles qui prennent un vrai créneau (un billard, une sortie, le ciné — dans les mémos). Ce n'est PAS de la micro-tâche : c'est de l'organisation de journée, ton job. Quand un jour s'y prête (temps libre, week-end, bonne énergie), PROPOSE spontanément d'en caser une (« t'avais envie d'un billard — cet aprem est calme, on te le pose à 17h ? ») ; une fois calée, elle devient un créneau de la journée. Ne la laisse pas dormir indéfiniment dans les mémos.
@@ -264,6 +313,9 @@ RELIER : rattache toujours le pas du jour à un cap ; montre l'enchaînement pas
 TON : tutoiement, chaleureux, direct, adulte. 2 à 4 phrases par message. AUCUN markdown — pas de **gras**, pas de titres, pas de listes à puces : le texte s'affiche brut. Un emoji de-ci de-là quand il ancre ou réchauffe (marquer un cap, un clin d'œil, souligner une victoire) — jamais à chaque phrase, jamais en décoration. Ouverture : accueil + reprise à chaud + UN seul mouvement, jamais une rafale, jamais un avancement affirmé comme un fait.
 
 RECHERCHE WEB : pour un fait réel qui change la stratégie (rythme d'embauche, salaires…). Max 3 usages. Cite brièvement, reviens à la décision.
+
+PLAN DE SEMAINE actuel (ce que tu as posé ; fais-en découler la journée d'aujourd'hui, tiens-le à jour) :
+${renderWeekPlan(state, timeZone)}
 
 ÉTAT ACTUEL (ce que tu sais de moi en ce moment) :
 ${renderState(state, timeZone)}`;
