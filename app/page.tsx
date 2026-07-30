@@ -14,11 +14,13 @@ import type {
   Habit,
   Objective,
   Priority,
+  WeekSlot,
 } from "@/lib/types";
 import AuClair, { type DayRow, type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
 import InstallPrompt, { InstallBanner } from "@/components/InstallPrompt";
+import { DAY_KEYS, PART_SHORT, PARTS, todayDayIdx } from "@/lib/week";
 
 type View = "clair" | "projets" | "plan" | "today";
 
@@ -250,6 +252,13 @@ export default function Home() {
   // son type (un jour dur, ça peut être un rituel d'activation, pas la prio n°1).
   const dayPlan = state.dayPlan ?? [];
   const hasDay = dayPlan.length > 0;
+
+  // Le créneau du plan de semaine POUR AUJOURD'HUI (cap + objectif + sous-créneaux
+  // 2×30 min) — pour que « Aujourd'hui » montre la même richesse que « Plan ».
+  const todayKey = DAY_KEYS[todayDayIdx()];
+  const todayWeekSlots = (state.weekPlan?.slots ?? []).filter(
+    (s) => (s.weekOffset ?? 0) === 0 && s.day === todayKey,
+  );
   const dayDoneOf = (d: DayItem) =>
     d.kind === "priority" && d.refId
       ? !!state.priorities.find((p) => p.id === d.refId)?.done
@@ -322,6 +331,9 @@ export default function Home() {
               {/* Les victoires du jour, en direct — le shot de dopamine avant
                   même de regarder ce qu'il reste. */}
               <WinsBanner done={doneToday} streak={streakToday} />
+
+              {/* Le plan du jour issu de la semaine : objectifs + sous-créneaux. */}
+              <TodayPlan slots={todayWeekSlots} objectives={state.objectives} />
 
               {/* Les acquis du jour, mis en avant : la récompense d'abord,
                   avant le reste-à-faire. */}
@@ -1011,6 +1023,81 @@ function ImportBanner({ onImport }: { onImport: (s: CapState) => void }) {
       >
         Importer mes données
       </button>
+    </div>
+  );
+}
+
+// « Ton plan du jour » : le créneau du plan de semaine pour aujourd'hui, avec
+// son objectif (🎯) et son découpage (2×30 min…), groupé par moment. Rend
+// « Aujourd'hui » aussi concret que « Plan », sans casser le suivi des victoires.
+function TodayPlan({
+  slots,
+  objectives,
+}: {
+  slots: WeekSlot[];
+  objectives: Objective[];
+}) {
+  if (slots.length === 0) return null;
+  const objById = new Map(objectives.map((o) => [o.id, o]));
+  const ordered = PARTS.map((p) => slots.find((s) => s.part === p)).filter(
+    (s): s is WeekSlot => !!s,
+  );
+
+  return (
+    <div className="mb-6">
+      <p className="mb-2.5 text-xs uppercase tracking-[0.18em] text-faint">
+        Ton plan du jour
+      </p>
+      <div className="flex flex-col gap-2.5">
+        {ordered.map((s) => {
+          const o = objById.get(s.objectiveId);
+          const color = capColor(objectives, s.objectiveId);
+          return (
+            <div
+              key={s.part}
+              className="rounded-2xl border border-line bg-surface/60 p-4 shadow-sm"
+              style={{ borderLeft: `4px solid ${color}` }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-[0.7rem] font-medium uppercase tracking-[0.15em] text-faint">
+                  {PART_SHORT[s.part]}
+                </span>
+                {o && (
+                  <span className="text-sm font-semibold" style={{ color }}>
+                    {o.icon && `${o.icon} `}
+                    {o.title}
+                  </span>
+                )}
+              </div>
+              {s.goal && (
+                <p className="mt-2 flex gap-1.5 text-[1.02rem] font-medium leading-snug text-ink">
+                  <span aria-hidden>🎯</span>
+                  <span>{s.goal}</span>
+                </p>
+              )}
+              {s.blocks && s.blocks.length > 0 && (
+                <ul className="mt-2.5 flex flex-col gap-1.5">
+                  {s.blocks.map((b, i) => (
+                    <li
+                      key={i}
+                      className="flex items-baseline gap-2 rounded-lg bg-canvas/60 px-3 py-2 text-sm"
+                    >
+                      <span
+                        className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: color }}
+                      />
+                      <span>
+                        <span className="font-medium text-ink">{b.label}</span>
+                        {b.goal && <span className="text-muted"> · {b.goal}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
