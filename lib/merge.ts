@@ -430,21 +430,31 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
   if (r.weekPlan !== undefined) {
     const wp = normalizeWeekPlan(r.weekPlan, objectives);
     if (wp.slots.length > 0) {
-      // Reporter les blocs déjà cochés (le modèle ne connaît pas "done") : on
-      // matche par jour/moment/semaine/label pour ne pas effacer une victoire.
-      const doneKeys = new Set<string>();
-      for (const s of state.weekPlan?.slots ?? [])
-        for (const b of s.blocks ?? [])
-          if (b.done)
-            doneKeys.add(`${s.weekOffset ?? 0}-${s.day}-${s.part}-${b.label}`);
-      wp.slots = wp.slots.map((s) => ({
-        ...s,
-        blocks: s.blocks?.map((b) =>
-          doneKeys.has(`${s.weekOffset ?? 0}-${s.day}-${s.part}-${b.label}`)
-            ? { ...b, done: true }
-            : b,
-        ),
-      }));
+      // Quand le modèle ré-émet le plan (modification), il oublie souvent le
+      // découpage (blocks) et les "done". Pour un MÊME cap sur la MÊME case, on
+      // reporte l'ancien découpage cochable au lieu de le perdre.
+      const prevByCell = new Map(
+        (state.weekPlan?.slots ?? []).map((s) => [
+          `${s.weekOffset ?? 0}-${s.day}-${s.part}`,
+          s,
+        ]),
+      );
+      wp.slots = wp.slots.map((s) => {
+        const prev = prevByCell.get(`${s.weekOffset ?? 0}-${s.day}-${s.part}`);
+        if (!prev || prev.objectiveId !== s.objectiveId) return s;
+        let blocks = s.blocks;
+        if ((!blocks || blocks.length === 0) && prev.blocks?.length) {
+          blocks = prev.blocks; // découpage oublié → on garde l'ancien
+        } else if (blocks?.length && prev.blocks?.length) {
+          const done = new Set(
+            prev.blocks.filter((b) => b.done).map((b) => b.label),
+          );
+          blocks = blocks.map((b) =>
+            done.has(b.label) ? { ...b, done: true } : b,
+          );
+        }
+        return { ...s, blocks, goal: s.goal ?? prev.goal };
+      });
       weekPlan = wp;
     }
   }
