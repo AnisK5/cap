@@ -409,7 +409,7 @@ Règles :
 - COMPTEUR MESURABLE ("metric") + CUMUL DATÉ ("progressTotal") : dès qu'un objectif se ramène à une quantité qui s'accumule vers un but (candidatures, personnes contactées, boîtes, diffusions…), pose "metric" = { label, target } (ex. « candidatures », 30). C'est TOI qui décides du bon découpage chiffré de l'objectif. Puis, chaque fois que la personne rapporte un chiffre RÉEL (« j'en ai envoyé ~15, ça fait 45 en tout »), renvoie "progressTotal" = le CUMUL atteint maintenant (45) — jamais l'incrément seul, jamais un chiffre inventé. C'est ce qui permet de placer le concret dans le temps et de projeter le rythme. N'en mets PAS pour un objectif purement à jalons (rien à compter) ni pour un rythme/rituel (pas de cible).
 - PHASAGE EN SEMAINES (fromWeek/toWeek) : quand la conversation évoque le « quand » (« le CV cette semaine et la prochaine, les candidatures ensuite »), place les chantiers sur la frise en offsets de semaines depuis cette semaine (0 = cette semaine). Estimations LARGES, jamais des dates. Ne l'invente pas si le phasage n'a pas été abordé.
 - VOIES : si un cap a plusieurs ROUTES distinctes vers le même but (ex. « job » vs « freelance » pour « un revenu qui nourrit les apps »), étiquette chaque chantier avec sa "voie". Sinon, omets.
-- LA JOURNÉE ("dayPlan") : dès que la conversation a posé la forme du jour, renseigne-la — la liste ORDONNÉE des créneaux, chacun avec son "dueBy" (granularité adaptée) et son "why" (l'enjeu d'aujourd'hui). N'ÉCRIS QUE les PROJETS (priorités du jour) et les CONTRAINTES FIXES (rendez-vous, réunions) ; les rythmes de fond et l'entretien de soi (douche, repas, sport, écriture…) ne s'écrivent PAS comme des créneaux — on leur réserve la marge, ils restent hors de la liste (ne pose un "habit" que si la personne a explicitement demandé à le caler ce jour-là). Elle se met à jour EN CONTINU (le coach est un compagnon ouvert toute la journée, pas une session qu'on clôt) : à chaque échange qui la fait évoluer, renvoie la liste à jour. Si tu ne la fournis pas, la journée en cours est CONSERVÉE (ne l'écrase jamais avec du vide). Construis-la même à partir d'une seule priorité.
+- LA JOURNÉE ("dayPlan") : dès que la conversation a posé la forme du jour, renseigne-la — la liste ORDONNÉE des créneaux, chacun avec son "dueBy" (granularité adaptée) et son "why" (l'enjeu d'aujourd'hui). N'ÉCRIS QUE les PROJETS (priorités du jour) et les CONTRAINTES FIXES (rendez-vous, réunions) ; les rythmes de fond et l'entretien de soi (douche, repas, sport, écriture…) ne s'écrivent PAS comme des créneaux — on leur réserve la marge, ils restent hors de la liste (ne pose un "habit" que si la personne a explicitement demandé à le caler ce jour-là). Elle se met à jour EN CONTINU (le coach est un compagnon ouvert toute la journée, pas une session qu'on clôt) : à chaque échange qui la fait évoluer, renvoie la liste à jour. Si tu ne la fournis pas, la journée en cours est CONSERVÉE (ne l'écrase jamais avec du vide). Construis-la même à partir d'une seule priorité. Chaque créneau porte son DÉCOUPAGE "blocks" (les sous-créneaux 2×30 min que la personne coche un par un) — reprends celui du plan de semaine pour aujourd'hui ; quand tu re-fournis la journée, GARDE les blocks de chaque créneau inchangé (ne renvoie pas un créneau nu). Et dès que la personne DÉCIDE de faire quelque chose (« au prochain créneau je refais le CV ») : ajoute-le comme créneau de la journée avec le bon "dueBy" qui reflète SON timing (« maintenant », « prochain créneau », pas « ce soir » si elle a dit maintenant), et remets-le au bon endroit dans l'ordre. La dernière intention de la personne prime sur la journée déjà posée.
 - MONTRE LES ACQUIS DU JOUR : inclus dans "dayPlan" ce qui est DÉJÀ fait ou réglé aujourd'hui, marqué "done":true (ex. un créneau accompli, une chose que la personne dit avoir bouclée). Une journée qui ne montre QUE le reste-à-faire décourage ; une journée qui montre d'abord ce qui est déjà dans la poche donne l'élan. C'est le sens de la récompense pour un cerveau TDAH.
 - PRIORITÉS COCHÉES [x] = réellement FAITES (cochées par la personne elle-même) : c'est du track record FIABLE. Consigne-les dans "understanding" comme du FAIT (volumes inclus), sans que la personne ait à le redire.
 - "understanding" : ne perds pas ce qui était su, enrichis-le (2-5 phrases). DISTINGUE le DÉCIDÉ/PRÉVU du FAIT (écris « prévoit d'amorcer », pas « a amorcé »). Quand la personne rapporte ce qu'elle a RÉELLEMENT fait (volumes, résultats), consigne-le : c'est son track record. Note aussi sa PENTE si elle se manifeste (préfère prendre du contexte / poser sa carte, vs foncer direct aux tâches) — ça sert à calibrer le bon niveau de questions la fois suivante.
@@ -635,6 +635,19 @@ export const RECONCILE_TOOL: Anthropic.Tool = {
               type: "boolean",
               description:
                 "true si ce créneau est DÉJÀ fait ou réglé aujourd'hui (la personne l'a rapporté comme accompli). Inclure les acquis du jour dans la journée = la récompense qui donne l'élan.",
+            },
+            blocks: {
+              type: "array",
+              description:
+                "le découpage concret de ce créneau en sous-créneaux bornés (durée + mini-objectif chiffré) que la personne coche un par un. Ex. « 2×30 min candidatures · viser 2 ». Reprends le découpage du plan de semaine pour aujourd'hui, adapté aux décisions du moment.",
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string" },
+                  goal: { type: "string" },
+                },
+                required: ["label"],
+              },
             },
           },
           required: ["title", "kind"],

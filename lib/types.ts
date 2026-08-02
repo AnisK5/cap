@@ -106,6 +106,7 @@ export interface DayItem {
   dueBy?: string; // deadline du jour, granularité choisie par le coach (« avant midi », « 14h »)
   why?: string; // l'ENJEU d'aujourd'hui : l'impact sur l'objectif si c'est fait aujourd'hui
   done?: boolean; // pour habit/fixed — une priority se coche via la Priority elle-même
+  blocks?: WeekBlock[]; // le découpage en sous-créneaux cochables (2×30 min…), tenu en direct
 }
 
 export type Role = "assistant" | "user";

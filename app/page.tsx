@@ -14,13 +14,11 @@ import type {
   Habit,
   Objective,
   Priority,
-  WeekSlot,
 } from "@/lib/types";
 import AuClair, { type DayRow, type LandedPayload } from "@/components/AuClair";
 import Carte from "@/components/Carte";
 import { capColor } from "@/components/CapTrack";
 import InstallPrompt, { InstallBanner } from "@/components/InstallPrompt";
-import { DAY_KEYS, PART_SHORT, PARTS, todayDayIdx } from "@/lib/week";
 
 type View = "clair" | "projets" | "plan" | "today";
 
@@ -176,23 +174,22 @@ export default function Home() {
     [state, save, onTogglePriority],
   );
 
-  // Cocher un sous-créneau du plan du jour (une victoire) : on flippe son "done"
-  // dans le créneau de cette semaine correspondant.
+  // Cocher un sous-créneau de la journée (une victoire) : flip son "done".
   const onToggleBlock = useCallback(
-    (day: string, part: string, blockIndex: number) => {
-      const wp = state.weekPlan;
-      if (!wp) return;
-      const slots = wp.slots.map((s) =>
-        (s.weekOffset ?? 0) === 0 && s.day === day && s.part === part
-          ? {
-              ...s,
-              blocks: (s.blocks ?? []).map((b, i) =>
-                i === blockIndex ? { ...b, done: !b.done } : b,
-              ),
-            }
-          : s,
-      );
-      save({ ...state, weekPlan: { ...wp, slots } });
+    (itemId: string, blockIndex: number) => {
+      save({
+        ...state,
+        dayPlan: (state.dayPlan ?? []).map((d) =>
+          d.id === itemId
+            ? {
+                ...d,
+                blocks: (d.blocks ?? []).map((b, i) =>
+                  i === blockIndex ? { ...b, done: !b.done } : b,
+                ),
+              }
+            : d,
+        ),
+      });
     },
     [state, save],
   );
@@ -274,36 +271,23 @@ export default function Home() {
   const dayPlan = state.dayPlan ?? [];
   const hasDay = dayPlan.length > 0;
 
-  // Le créneau du plan de semaine POUR AUJOURD'HUI (cap + objectif + sous-créneaux
-  // 2×30 min) — pour que « Aujourd'hui » montre la même richesse que « Plan ».
-  const todayKey = DAY_KEYS[todayDayIdx()];
-  const todayWeekSlots = (state.weekPlan?.slots ?? []).filter(
-    (s) => (s.weekOffset ?? 0) === 0 && s.day === todayKey,
-  );
   const dayDoneOf = (d: DayItem) =>
     d.kind === "priority" && d.refId
       ? !!state.priorities.find((p) => p.id === d.refId)?.done
       : !!d.done;
-  const dayPending = dayPlan.filter((d) => !dayDoneOf(d));
   const dayDone = dayPlan.filter((d) => dayDoneOf(d));
-  const dayHero = dayPending[0];
-  const dayRest = dayPending.slice(1);
 
   // Les victoires du jour, EN DIRECT : un cerveau TDA sous-enregistre ce qu'il
   // fait — on le lui met sous les yeux, en cadrage positif, qui monte à chaque
-  // coche. Série = jours passés consécutifs avec ≥1 fait, + aujourd'hui.
-  // Quand le plan du jour vient de la semaine, les victoires = les sous-créneaux
-  // cochés ; sinon on retombe sur le dayPlan / priorités.
-  const dayFromWeek = todayWeekSlots.length > 0;
-  const doneTodayBlocks = todayWeekSlots.reduce(
-    (n, s) => n + (s.blocks?.filter((b) => b.done).length ?? 0),
+  // coche. Les sous-créneaux cochés sont les victoires principales ; + les
+  // créneaux sans découpage qui sont faits. Série = jours passés + aujourd'hui.
+  const doneBlocksToday = dayPlan.reduce(
+    (n, d) => n + (d.blocks?.filter((b) => b.done).length ?? 0),
     0,
   );
-  const doneToday = dayFromWeek
-    ? doneTodayBlocks
-    : hasDay
-      ? dayDone.length
-      : doneItems.length;
+  const doneToday = hasDay
+    ? doneBlocksToday + dayDone.filter((d) => !d.blocks?.length).length
+    : doneItems.length;
   const histForStreak = state.history ?? [];
   let pastStreak = 0;
   for (let i = histForStreak.length - 1; i >= 0; i--) {
@@ -364,30 +348,21 @@ export default function Home() {
                   même de regarder ce qu'il reste. */}
               <WinsBanner done={doneToday} streak={streakToday} />
 
-              {/* Le plan du jour issu de la semaine : objectifs + sous-créneaux
-                  cochables (les victoires). Quand il existe, il REMPLACE le
-                  hero/timeline pour éviter les doublons. */}
-              <TodayPlan
-                slots={todayWeekSlots}
-                objectives={state.objectives}
-                onToggle={onToggleBlock}
-              />
-
-              {!dayFromWeek && (
+              {/* La journée VIVANTE (mise à jour par le chat), groupée par
+                  moment, avec les sous-créneaux cochables (les victoires). */}
+              {hasDay ? (
+                <LiveDay
+                  items={dayPlan}
+                  priorities={state.priorities}
+                  habits={state.habits}
+                  objById={objById}
+                  objectives={state.objectives}
+                  onToggleItem={onToggleDayItem}
+                  onToggleBlock={onToggleBlock}
+                />
+              ) : (
                 <>
-              {/* Les acquis du jour, mis en avant : la récompense d'abord,
-                  avant le reste-à-faire. */}
-              {hasDay
-                ? dayDone.length > 0 && (
-                    <DoneStrip
-                      items={dayDone.map((d) => ({ id: d.id, title: d.title }))}
-                      onToggle={(id) => {
-                        const d = dayDone.find((x) => x.id === id);
-                        if (d) onToggleDayItem(d);
-                      }}
-                    />
-                  )
-                : doneItems.length > 0 && (
+                  {doneItems.length > 0 && (
                     <DoneStrip
                       items={doneItems.map(({ p }) => ({
                         id: p.id,
@@ -396,35 +371,6 @@ export default function Home() {
                       onToggle={onTogglePriority}
                     />
                   )}
-
-              {hasDay ? (
-                <>
-                  {dayHero ? (
-                    <DayHero
-                      item={dayHero}
-                      priorities={state.priorities}
-                      habits={state.habits}
-                      objById={objById}
-                      objectives={state.objectives}
-                      onToggle={() => onToggleDayItem(dayHero)}
-                      justLanded={justLanded}
-                    />
-                  ) : (
-                    <AllDone />
-                  )}
-                  {dayRest.length > 0 && (
-                    <DayTimeline
-                      items={dayRest}
-                      priorities={state.priorities}
-                      habits={state.habits}
-                      objById={objById}
-                      objectives={state.objectives}
-                      onToggle={onToggleDayItem}
-                    />
-                  )}
-                </>
-              ) : (
-                <>
                   {hero ? (
                     <PriorityHero
                       priority={hero.p}
@@ -449,8 +395,6 @@ export default function Home() {
                       onToggle={onTogglePriority}
                     />
                   )}
-                </>
-              )}
                 </>
               )}
 
@@ -1069,94 +1013,148 @@ function ImportBanner({ onImport }: { onImport: (s: CapState) => void }) {
   );
 }
 
-// « Ton plan du jour » : le créneau du plan de semaine pour aujourd'hui, avec
-// son objectif (🎯) et son découpage (2×30 min…), groupé par moment. Rend
-// « Aujourd'hui » aussi concret que « Plan », sans casser le suivi des victoires.
-function TodayPlan({
-  slots,
+// La journée VIVANTE (le dayPlan que la réconciliation met à jour à chaque
+// échange), groupée par moment (matin/midi/aprem/soir). Chaque créneau montre
+// le cap + le pas + son enjeu, et son découpage en sous-créneaux COCHABLES (les
+// victoires, 2×30 min…). Un créneau sans découpage se coche lui-même.
+function LiveDay({
+  items,
+  priorities,
+  habits,
+  objById,
   objectives,
-  onToggle,
+  onToggleItem,
+  onToggleBlock,
 }: {
-  slots: WeekSlot[];
+  items: DayItem[];
+  priorities: Priority[];
+  habits: Habit[] | undefined;
+  objById: Map<string, Objective>;
   objectives: Objective[];
-  onToggle: (day: string, part: string, blockIndex: number) => void;
+  onToggleItem: (item: DayItem) => void;
+  onToggleBlock: (itemId: string, blockIndex: number) => void;
 }) {
-  if (slots.length === 0) return null;
-  const objById = new Map(objectives.map((o) => [o.id, o]));
-  const ordered = PARTS.map((p) => slots.find((s) => s.part === p)).filter(
-    (s): s is WeekSlot => !!s,
-  );
+  const doneOf = (d: DayItem) =>
+    d.kind === "priority" && d.refId
+      ? !!priorities.find((p) => p.id === d.refId)?.done
+      : !!d.done;
+
+  const byMoment = new Map<Moment, DayItem[]>();
+  for (const d of items) {
+    const key = momentOf(d.dueBy);
+    (byMoment.get(key) ?? byMoment.set(key, []).get(key)!).push(d);
+  }
+  const groups = MOMENTS.filter((m) => byMoment.get(m.key)?.length);
 
   return (
-    <div className="mb-6">
-      <p className="mb-2.5 text-xs uppercase tracking-[0.18em] text-faint">
-        Ton plan du jour
-      </p>
-      <div className="flex flex-col gap-2.5">
-        {ordered.map((s) => {
-          const o = objById.get(s.objectiveId);
-          const color = capColor(objectives, s.objectiveId);
-          return (
-            <div
-              key={s.part}
-              className="rounded-2xl border border-line bg-surface/60 p-4 shadow-sm"
-              style={{ borderLeft: `4px solid ${color}` }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-[0.7rem] font-medium uppercase tracking-[0.15em] text-faint">
-                  {PART_SHORT[s.part]}
-                </span>
-                {o && (
-                  <span className="text-sm font-semibold" style={{ color }}>
-                    {o.icon && `${o.icon} `}
-                    {o.title}
-                  </span>
-                )}
-              </div>
-              {s.goal && (
-                <p className="mt-2 flex gap-1.5 text-[1.02rem] font-medium leading-snug text-ink">
-                  <span aria-hidden>🎯</span>
-                  <span>{s.goal}</span>
-                </p>
-              )}
-              {s.blocks && s.blocks.length > 0 && (
-                <ul className="mt-2.5 flex flex-col gap-1.5">
-                  {s.blocks.map((b, i) => (
-                    <li key={i}>
-                      <button
-                        onClick={() => onToggle(s.day, s.part, i)}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                          b.done
-                            ? "bg-cap-soft/40"
-                            : "bg-canvas/60 hover:bg-canvas"
+    <div className="mt-2 flex flex-col gap-6">
+      {groups.map((m) => (
+        <div key={m.key}>
+          <p className="border-t border-line/60 pt-3 text-xs uppercase tracking-[0.18em] text-faint">
+            {m.label}
+          </p>
+          <div className="mt-3 flex flex-col gap-2.5">
+            {byMoment.get(m.key)!.map((d) => {
+              const { objective, icon, color } = resolveDay(
+                d,
+                priorities,
+                habits,
+                objById,
+                objectives,
+              );
+              const hasBlocks = !!d.blocks?.length;
+              const itemDone = doneOf(d);
+              return (
+                <div
+                  key={d.id}
+                  className="rounded-2xl border border-line bg-surface p-4 shadow-sm"
+                  style={{ borderLeft: `4px solid ${color}` }}
+                >
+                  <div className="flex items-start gap-3">
+                    {!hasBlocks && (
+                      <CheckCircle
+                        done={itemDone}
+                        color={color}
+                        onToggle={() => onToggleItem(d)}
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`font-display text-lg font-medium leading-tight ${
+                          itemDone && !hasBlocks
+                            ? "text-faint line-through"
+                            : "text-ink"
                         }`}
                       >
-                        <span
-                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[0.6rem] text-canvas"
-                          style={{
-                            borderColor: color,
-                            background: b.done ? color : undefined,
-                          }}
-                        >
-                          {b.done ? "✓" : ""}
-                        </span>
-                        <span className={b.done ? "text-faint line-through" : ""}>
-                          <span className={b.done ? "" : "font-medium text-ink"}>
-                            {b.label}
+                        {icon && <span className="mr-1">{icon}</span>}
+                        {d.title}
+                        {d.dueBy && (
+                          <span className="ml-2 align-middle text-xs font-normal text-faint">
+                            · {d.dueBy}
                           </span>
-                          {b.goal && (
-                            <span className="text-muted"> · {b.goal}</span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                        )}
+                      </p>
+                      {d.why && (
+                        <p className="mt-1 text-sm leading-snug text-muted">
+                          {d.why}
+                        </p>
+                      )}
+                      {objective && (
+                        <p className="mt-1.5 text-xs text-faint">
+                          fait avancer&nbsp;:{" "}
+                          <span style={{ color }}>{objective.title}</span>
+                        </p>
+                      )}
+                      {hasBlocks && (
+                        <ul className="mt-2.5 flex flex-col gap-1.5">
+                          {d.blocks!.map((b, i) => (
+                            <li key={i}>
+                              <button
+                                onClick={() => onToggleBlock(d.id, i)}
+                                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                                  b.done
+                                    ? "bg-cap-soft/40"
+                                    : "bg-canvas/60 hover:bg-canvas"
+                                }`}
+                              >
+                                <span
+                                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[0.6rem] text-canvas"
+                                  style={{
+                                    borderColor: color,
+                                    background: b.done ? color : undefined,
+                                  }}
+                                >
+                                  {b.done ? "✓" : ""}
+                                </span>
+                                <span
+                                  className={
+                                    b.done ? "text-faint line-through" : ""
+                                  }
+                                >
+                                  <span
+                                    className={
+                                      b.done ? "" : "font-medium text-ink"
+                                    }
+                                  >
+                                    {b.label}
+                                  </span>
+                                  {b.goal && (
+                                    <span className="text-muted"> · {b.goal}</span>
+                                  )}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

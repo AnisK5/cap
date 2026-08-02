@@ -10,6 +10,7 @@ import type {
   Objective,
   Priority,
   Step,
+  WeekBlock,
 } from "./types";
 import { normalizeWeekPlan, type RawWeekPlan } from "./week";
 
@@ -111,6 +112,7 @@ export interface Reconciliation {
     dueBy?: string;
     why?: string;
     done?: boolean; // déjà fait/réglé aujourd'hui — à célébrer comme acquis
+    blocks?: { label?: string; goal?: string }[]; // découpage en sous-créneaux
   }[];
   understanding?: string;
   note?: string;
@@ -384,6 +386,19 @@ function linkDayPlan(
       const prev = existing?.find(
         (e) => e.kind === d.kind && normKey(e.title) === normKey(d.title),
       );
+      // Découpage en sous-créneaux : on garde le ✓ déjà mis (match par label) ;
+      // si le modèle a oublié de re-fournir les blocs, on garde les anciens.
+      const prevDone = new Set(
+        (prev?.blocks ?? []).filter((b) => b.done).map((b) => b.label),
+      );
+      let blocks: WeekBlock[] = (d.blocks ?? [])
+        .filter((b) => b?.label?.trim())
+        .map((b) => ({
+          label: b.label!.trim(),
+          goal: b.goal?.trim() || undefined,
+          done: prevDone.has(b.label!.trim()) || undefined,
+        }));
+      if (blocks.length === 0 && prev?.blocks?.length) blocks = prev.blocks;
       return {
         id: prev?.id ?? newId(),
         kind: d.kind,
@@ -392,6 +407,7 @@ function linkDayPlan(
         ...(d.dueBy?.trim() ? { dueBy: d.dueBy.trim() } : {}),
         ...(d.why?.trim() ? { why: d.why.trim() } : {}),
         done: d.done ?? prev?.done ?? false,
+        ...(blocks.length ? { blocks } : {}),
       };
     });
 }
