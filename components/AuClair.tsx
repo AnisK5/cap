@@ -218,7 +218,7 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
 
   return (
     <div
-      className={`${active ? "flex" : "hidden"} h-[calc(100dvh-13rem)] flex-col pb-[env(safe-area-inset-bottom)]`}
+      className={`${active ? "flex" : "hidden"} h-[calc(100dvh-13rem)] flex-col pb-[env(safe-area-inset-bottom)] sm:h-[calc(100dvh-18rem)]`}
     >
       <div className="mb-2 flex items-center justify-between">
         {day && day.length > 0 ? <DayStrip rows={day} /> : <span />}
