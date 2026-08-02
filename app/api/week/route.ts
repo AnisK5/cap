@@ -50,7 +50,13 @@ NOUS SOMMES ${todayLabel}. Pose la forme de ma semaine, du jour présent (${DAY_
     const res = await client.messages.create({
       model: CHAT_MODEL,
       max_tokens: 1500,
-      system: WEEK_INSTRUCTION,
+      system: [
+        {
+          type: "text",
+          text: WEEK_INSTRUCTION,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       tools: [WEEK_TOOL],
       tool_choice: { type: "tool", name: "poser_la_semaine" },
       messages: [{ role: "user", content: userMsg }],

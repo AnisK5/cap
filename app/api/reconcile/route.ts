@@ -62,7 +62,15 @@ export async function POST(req: Request) {
     const res = await client.messages.create({
       model: RECONCILE_MODEL,
       max_tokens: 2000,
-      system: RECONCILE_INSTRUCTION,
+      // Instruction + outil sont statiques → mis en cache (l'état/le transcript,
+      // volatils, sont dans le message user, après le préfixe caché).
+      system: [
+        {
+          type: "text",
+          text: RECONCILE_INSTRUCTION,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       tools: [RECONCILE_TOOL],
       tool_choice: { type: "tool", name: "enregistrer" },
       messages: [

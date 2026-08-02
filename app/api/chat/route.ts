@@ -59,7 +59,7 @@ export async function POST(req: Request) {
   // relancer la requête EN RENVOYANT la réponse partielle (le serveur détecte le
   // bloc server_tool_use en attente et reprend tout seul) — sinon le message est
   // tronqué en plein milieu (« Demain tu… »).
-  const MAX_CONTINUATIONS = 4;
+  const MAX_CONTINUATIONS = 2;
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
             system,
             messages: convo,
             tools: [
-              { type: "web_search_20260209", name: "web_search", max_uses: 3 },
+              { type: "web_search_20260209", name: "web_search", max_uses: 1 },
             ],
           });
           for await (const event of stream) {
