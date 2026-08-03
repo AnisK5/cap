@@ -136,9 +136,13 @@ export default function AuClair({
   // ce tour, on affiche la mini-carte sous le dernier message — sinon rien. Puis
   // on propage l'état au parent comme d'habitude.
   const applyReconciled = useCallback(
-    (payload: LandedPayload) => {
+    (payload: LandedPayload, assistantText?: string) => {
       const sig = weekSig(payload.state.weekPlan);
-      if (sig && sig !== beforeWeekSig.current) {
+      // On montre la mini-carte quand il y a une semaine posée ET soit elle vient
+      // de changer, soit le coach vient d'en PARLER (tu demandes « on fait quoi
+      // cette semaine » → il la décrit → la carte l'accompagne, pas un pavé).
+      const talksWeek = !!assistantText && /semaine|\bplan\b/i.test(assistantText);
+      if (sig && (sig !== beforeWeekSig.current || talksWeek)) {
         const plan = payload.state.weekPlan;
         if (plan) setWeekCard({ after: msgLen.current - 1, plan });
       }
@@ -171,7 +175,11 @@ export default function AuClair({
       ]);
       setBusy(true);
       streamChat({ sessionId: sid, messages: convo, ...extra }, appendDelta)
-        .then(() => reconcile(sid).then(applyReconciled).catch(() => {}))
+        .then((full) =>
+          reconcile(sid)
+            .then((p) => applyReconciled(p, full))
+            .catch(() => {}),
+        )
         .catch((e) => setError((e as Error).message))
         .finally(() => {
           setBusy(false);
@@ -293,10 +301,12 @@ export default function AuClair({
     setMessages([...convo, { role: "assistant", content: "", at: now }]);
     setBusy(true);
     try {
-      await streamChat({ sessionId, messages: convo }, appendDelta);
+      const full = await streamChat({ sessionId, messages: convo }, appendDelta);
       // Tout se commit en direct : le serveur relit le fil, fusionne (carte +
       // priorités + journée) et renvoie l'état à jour, qu'on reflète aussitôt.
-      reconcile(sessionId).then(applyReconciled).catch(() => {});
+      reconcile(sessionId)
+        .then((p) => applyReconciled(p, full))
+        .catch(() => {});
     } catch (e) {
       setError((e as Error).message);
     } finally {

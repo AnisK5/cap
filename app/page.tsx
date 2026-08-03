@@ -495,9 +495,10 @@ export default function Home() {
       )}
 
       {/* Monté en permanence pour ne PAS perdre la conversation en changeant
-          d'onglet ; caché quand l'onglet n'est pas actif. Aligné à gauche comme
-          le titre et les onglets (pas centré, sinon il paraît décalé). */}
-      <div className="max-w-2xl">
+          d'onglet ; caché quand l'onglet n'est pas actif. Centré comme les autres
+          onglets (Aujourd'hui…) pour que le contenu ne saute pas d'un onglet à
+          l'autre. */}
+      <div className="mx-auto max-w-2xl">
         <AuClair
           active={view === "clair"}
           onClose={() => setView("today")}
