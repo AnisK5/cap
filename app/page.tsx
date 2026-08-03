@@ -502,6 +502,7 @@ export default function Home() {
           active={view === "clair"}
           onClose={() => setView("today")}
           onUpdate={onUpdate}
+          onWeekRolled={generateWeek}
           day={chatDay}
         />
       </div>

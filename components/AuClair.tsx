@@ -28,6 +28,7 @@ interface Props {
   active: boolean; // l'onglet « Au clair » est-il affiché ? (on démarre à ce moment)
   onClose: () => void;
   onUpdate: (s: LandedPayload) => void; // maj en direct de l'état après chaque tour
+  onWeekRolled?: () => void; // nouvelle semaine → reposer le plan (régénération)
   day?: DayRow[];
 }
 
@@ -78,7 +79,13 @@ async function reconcile(sessionId: string): Promise<LandedPayload> {
   return j;
 }
 
-export default function AuClair({ active, onClose, onUpdate, day }: Props) {
+export default function AuClair({
+  active,
+  onClose,
+  onUpdate,
+  onWeekRolled,
+  day,
+}: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -151,10 +158,13 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
             tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
           }),
         });
-        const { session, rolledOver, state } = await res.json();
-        // Un rollover (jour ou semaine) a pu décaler le plan côté serveur : on
+        const { session, rolledOver, state, weekRolled } = await res.json();
+        // Un rollover (jour ou semaine) a pu changer le plan côté serveur : on
         // reflète tout de suite l'état renvoyé pour que la grille soit à jour.
         if (state) onUpdate(state as LandedPayload);
+        // Nouvelle semaine : la grille a été vidée → on repose la semaine à
+        // partir du contexte actuel (le coach régénère), plutôt que de décaler.
+        if (weekRolled) onWeekRolled?.();
         setSessionId(session.id);
 
         const convo = (session.messages ?? []) as ChatMessage[];
@@ -178,7 +188,7 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
         setError((e as Error).message);
       }
     })();
-  }, [active, assistantTurn, onUpdate]);
+  }, [active, assistantTurn, onUpdate, onWeekRolled]);
 
   // « Recommencer » : un nouveau fil (l'état n'est pas touché).
   const reset = useCallback(async () => {

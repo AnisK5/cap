@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { createSession, getLatestSession, getState, putState } from "@/lib/db";
-import { mondayIso, rollDay, rollWeek } from "@/lib/merge";
+import { mondayIso, rollDay, rollWeek, weekPlanRolled } from "@/lib/merge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +58,9 @@ export async function POST(req: Request) {
   // attendre une réconciliation (sinon le plan de la semaine passée resterait
   // affiché, avec son faux sentiment de non-fait).
   let rolled = stored;
+  // Le plan de semaine était-il d'une semaine passée ? Si oui, rollWeek va vider
+  // la grille et le client relancera une génération fraîche (choix « auto »).
+  const weekRolled = stored ? weekPlanRolled(stored.state, currentMonday) : false;
   if (stored) {
     let next = stored.state;
     if (latest && !resume && lastDay) next = rollDay(next, lastDay);
@@ -80,6 +83,7 @@ export async function POST(req: Request) {
       },
       rolledOver: false,
       state: rolled,
+      weekRolled,
     });
   }
 
@@ -88,5 +92,6 @@ export async function POST(req: Request) {
     session: { id, messages: [], updatedAt: now.toISOString() },
     rolledOver: !!latest,
     state: rolled,
+    weekRolled,
   });
 }

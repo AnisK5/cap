@@ -672,20 +672,20 @@ function weeksBetween(fromMonday: string, toMonday: string): number {
   return Math.round((b.getTime() - a.getTime()) / (7 * 86400_000));
 }
 
-// Passage à une nouvelle SEMAINE civile : le plan de semaine se décale pour
-// rester ancré au présent. Fonction PURE. `currentMonday` = le lundi de la
-// semaine en cours (local). Le plan sans ancre est ancré au présent ; sinon on
-// décale chaque créneau de `delta` semaines et on JETTE la ou les semaines
-// écoulées (offset devenu négatif) — la semaine prochaine devient celle-ci. Les
-// atterrissages (landings), qui décrivaient la semaine passée, sont vidés : le
-// coach les reposera. On ne laisse RIEN de la semaine d'avant traîner comme
-// « pas fait » — c'est exactement ce faux sentiment de dette qu'on veut éviter.
+// Passage à une nouvelle SEMAINE civile. Fonction PURE. `currentMonday` = le
+// lundi de la semaine en cours (local). On NE DÉCALE PAS l'ancien plan : une
+// projection vieille d'une semaine a été faite sous d'autres hypothèses, la
+// transposer jour pour jour n'a aucun sens. Le plan de semaine est re-dérivable
+// → on repart d'une grille PROPRE (ancre remise à jour), et le coach repose la
+// semaine à partir du contexte et des objectifs ACTUELS (régénération auto
+// déclenchée côté client via `weekRolled`). On ne laisse RIEN de la semaine
+// d'avant, ni comme « pas fait », ni transposé arbitrairement.
 export function rollWeek(state: CapState, currentMonday: string): CapState {
   const wp = state.weekPlan;
   if (!wp || wp.slots.length === 0) return state;
 
   // Pas encore ancré (plan tout juste posé) → on l'ancre au présent, sans rien
-  // décaler : ses offsets valent déjà pour la semaine en cours.
+  // toucher : ses offsets valent déjà pour la semaine en cours.
   if (!wp.weekOf) {
     return { ...state, weekPlan: { ...wp, weekOf: currentMonday } };
   }
@@ -693,26 +693,19 @@ export function rollWeek(state: CapState, currentMonday: string): CapState {
   const delta = weeksBetween(wp.weekOf, currentMonday);
   if (delta <= 0) return state; // même semaine (ou horloge en arrière) → rien à faire
 
-  const slots = wp.slots
-    .map((s) => ({ ...s, weekOffset: (s.weekOffset ?? 0) - delta }))
-    .filter((s) => (s.weekOffset ?? 0) >= 0)
-    // On repart d'une case propre : un créneau qui redevient « cette semaine »
-    // n'hérite pas d'une coche d'un passé qui n'a plus lieu d'être.
-    .map((s) =>
-      s.blocks?.some((b) => b.done)
-        ? { ...s, blocks: s.blocks.map((b) => ({ ...b, done: false })) }
-        : s,
-    );
-
+  // Semaine changée : grille vidée, ancre au présent. Le coach reposera.
   return {
     ...state,
-    weekPlan: {
-      ...wp,
-      slots,
-      landings: undefined,
-      weekOf: currentMonday,
-    },
+    weekPlan: { generatedAt: wp.generatedAt, slots: [], weekOf: currentMonday },
   };
+}
+
+// Le plan de semaine était-il d'une semaine passée (donc à reposer) ? Sert au
+// client à déclencher la régénération quand rollWeek vient de vider la grille.
+export function weekPlanRolled(state: CapState, currentMonday: string): boolean {
+  const wp = state.weekPlan;
+  if (!wp || wp.slots.length === 0 || !wp.weekOf) return false;
+  return weeksBetween(wp.weekOf, currentMonday) > 0;
 }
 
 // Nettoyage DÉTERMINISTE des doublons DANS chaque cap : deux flux (ou deux
