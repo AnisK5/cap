@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireUser } from "@/lib/auth";
 import { getState, putState } from "@/lib/db";
+import { mondayIso } from "@/lib/merge";
 import { CHAT_MODEL } from "@/lib/model";
 import { WEEK_INSTRUCTION, WEEK_TOOL, reconcileStateSummary } from "@/lib/prompts";
 import {
@@ -70,7 +71,17 @@ NOUS SOMMES ${todayLabel}. Pose la forme de ma semaine, du jour présent (${DAY_
     return Response.json({ error: "Génération impossible." }, { status: 502 });
   }
 
-  const weekPlan = normalizeWeekPlan(raw, current.state.objectives);
+  // On ancre le plan à la semaine civile en cours (lundi local) : c'est la
+  // référence de `weekOffset = 0`, ce qui permet au plan de se décaler tout seul
+  // quand on change de semaine (cf. rollWeek).
+  const weekOf = mondayIso(
+    new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now),
+  );
+  const weekPlan = { ...normalizeWeekPlan(raw, current.state.objectives), weekOf };
 
   const written = await putState(
     supabase,

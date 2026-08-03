@@ -184,6 +184,12 @@ export interface WeekPlan {
   intro?: string; // 1-2 phrases donnant la logique d'ensemble
   slots: WeekSlot[];
   landings?: WeekLanding[];
+  // Le LUNDI (AAAA-MM-JJ local) auquel `weekOffset = 0` fait référence. Ancre le
+  // plan à une semaine civile réelle : quand on change de semaine, on décale les
+  // offsets et on vide la semaine écoulée (cf. rollWeek) — sinon le plan de la
+  // semaine passée resterait affiché comme « cette semaine », avec un faux
+  // sentiment de non-fait sur ce qui n'a pas été coché.
+  weekOf?: string;
 }
 
 // L'état complet, persistant. `understanding` = ce que l'assistant a compris de

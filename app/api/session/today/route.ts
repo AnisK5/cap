@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { createSession, getLatestSession, getState, putState } from "@/lib/db";
-import { rollDay } from "@/lib/merge";
+import { mondayIso, rollDay, rollWeek } from "@/lib/merge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,35 +37,56 @@ export async function POST(req: Request) {
   }
 
   const now = new Date();
+  const currentMonday = mondayIso(localDay(now, tz));
   const latest = await getLatestSession(supabase, user.id);
 
-  if (latest) {
-    const lastDay = localDay(new Date(latest.updatedAt), tz);
-    const gapMin = (now.getTime() - new Date(latest.updatedAt).getTime()) / 60000;
-    const sameDay = lastDay === localDay(now, tz);
+  const lastDay = latest ? localDay(new Date(latest.updatedAt), tz) : null;
+  const gapMin = latest
+    ? (now.getTime() - new Date(latest.updatedAt).getTime()) / 60000
+    : Infinity;
+  const sameDay = lastDay === localDay(now, tz);
+  const resume = !!latest && (sameDay || gapMin < 240);
 
-    if (sameDay || gapMin < 240) {
-      // On reprend le fil du jour.
-      return Response.json({
-        session: {
-          id: latest.id,
-          messages: latest.messages,
-          updatedAt: latest.updatedAt,
-        },
-        rolledOver: false,
-      });
+  // Rollovers (jour + semaine) en une seule écriture. Le jour ne se remet à zéro
+  // qu'à une VRAIE bascule (autre jour + pause > 4 h) ; la semaine, elle, se
+  // décale dès qu'on a changé de semaine civile — même sans grande pause, même
+  // si on reprend le fil du jour (cas Sun→Mon franchi vite). rollWeek est
+  // idempotent : même semaine → aucun changement, aucune écriture.
+  const stored = await getState(supabase, user.id);
+  // L'état à renvoyer au client : si un rollover l'a modifié, on renvoie la
+  // version à jour pour que la grille se décale À L'ÉCRAN tout de suite, sans
+  // attendre une réconciliation (sinon le plan de la semaine passée resterait
+  // affiché, avec son faux sentiment de non-fait).
+  let rolled = stored;
+  if (stored) {
+    let next = stored.state;
+    if (latest && !resume && lastDay) next = rollDay(next, lastDay);
+    next = rollWeek(next, currentMonday);
+    if (next !== stored.state) {
+      rolled = (await putState(supabase, user.id, next)) ?? {
+        state: next,
+        updatedAt: stored.updatedAt,
+      };
     }
+  }
 
-    // Nouveau jour : on archive la veille et on remet la journée à zéro.
-    const stored = await getState(supabase, user.id);
-    if (stored) {
-      await putState(supabase, user.id, rollDay(stored.state, lastDay));
-    }
+  if (resume) {
+    // On reprend le fil du jour.
+    return Response.json({
+      session: {
+        id: latest!.id,
+        messages: latest!.messages,
+        updatedAt: latest!.updatedAt,
+      },
+      rolledOver: false,
+      state: rolled,
+    });
   }
 
   const id = await createSession(supabase, user.id);
   return Response.json({
     session: { id, messages: [], updatedAt: now.toISOString() },
     rolledOver: !!latest,
+    state: rolled,
   });
 }

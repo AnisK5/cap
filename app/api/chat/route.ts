@@ -68,7 +68,12 @@ export async function POST(req: Request) {
         for (let turn = 0; ; turn++) {
           const stream = client.messages.stream({
             model: CHAT_MODEL,
-            max_tokens: 1200,
+            // Opus 5 réfléchit (thinking adaptatif) AVANT d'écrire, et ces jetons
+            // de réflexion comptent dans max_tokens : à 1200, une réflexion un peu
+            // fournie mangeait le budget et coupait la réponse EN PLEINE PHRASE
+            // (stop_reason "max_tokens"). On donne de la marge — on ne paie que ce
+            // qui est réellement produit, donc le coût courant ne bouge pas.
+            max_tokens: 3000,
             system,
             messages: convo,
             tools: [

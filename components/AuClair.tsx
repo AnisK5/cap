@@ -151,7 +151,10 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
             tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
           }),
         });
-        const { session, rolledOver } = await res.json();
+        const { session, rolledOver, state } = await res.json();
+        // Un rollover (jour ou semaine) a pu décaler le plan côté serveur : on
+        // reflète tout de suite l'état renvoyé pour que la grille soit à jour.
+        if (state) onUpdate(state as LandedPayload);
         setSessionId(session.id);
 
         const convo = (session.messages ?? []) as ChatMessage[];
@@ -175,7 +178,7 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
         setError((e as Error).message);
       }
     })();
-  }, [active, assistantTurn]);
+  }, [active, assistantTurn, onUpdate]);
 
   // « Recommencer » : un nouveau fil (l'état n'est pas touché).
   const reset = useCallback(async () => {

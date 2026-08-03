@@ -471,7 +471,9 @@ export function applyReconciliation(state: CapState, r: Reconciliation): CapStat
         }
         return { ...s, blocks, goal: s.goal ?? prev.goal };
       });
-      weekPlan = wp;
+      // On préserve l'ANCRE de semaine : le modèle ré-émet le plan sans elle, et
+      // sans ça le décalage de semaine (rollWeek) perdrait sa référence.
+      weekPlan = { ...wp, weekOf: state.weekPlan?.weekOf };
     }
   }
 
@@ -659,6 +661,58 @@ export function mondayIso(dayIso: string): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// Nombre de semaines entières entre deux lundis (AAAA-MM-JJ). Positif si `to`
+// est plus tard. `round` absorbe un éventuel décalage d'heure d'été.
+function weeksBetween(fromMonday: string, toMonday: string): number {
+  const a = new Date(`${fromMonday}T00:00:00`);
+  const b = new Date(`${toMonday}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  return Math.round((b.getTime() - a.getTime()) / (7 * 86400_000));
+}
+
+// Passage à une nouvelle SEMAINE civile : le plan de semaine se décale pour
+// rester ancré au présent. Fonction PURE. `currentMonday` = le lundi de la
+// semaine en cours (local). Le plan sans ancre est ancré au présent ; sinon on
+// décale chaque créneau de `delta` semaines et on JETTE la ou les semaines
+// écoulées (offset devenu négatif) — la semaine prochaine devient celle-ci. Les
+// atterrissages (landings), qui décrivaient la semaine passée, sont vidés : le
+// coach les reposera. On ne laisse RIEN de la semaine d'avant traîner comme
+// « pas fait » — c'est exactement ce faux sentiment de dette qu'on veut éviter.
+export function rollWeek(state: CapState, currentMonday: string): CapState {
+  const wp = state.weekPlan;
+  if (!wp || wp.slots.length === 0) return state;
+
+  // Pas encore ancré (plan tout juste posé) → on l'ancre au présent, sans rien
+  // décaler : ses offsets valent déjà pour la semaine en cours.
+  if (!wp.weekOf) {
+    return { ...state, weekPlan: { ...wp, weekOf: currentMonday } };
+  }
+
+  const delta = weeksBetween(wp.weekOf, currentMonday);
+  if (delta <= 0) return state; // même semaine (ou horloge en arrière) → rien à faire
+
+  const slots = wp.slots
+    .map((s) => ({ ...s, weekOffset: (s.weekOffset ?? 0) - delta }))
+    .filter((s) => (s.weekOffset ?? 0) >= 0)
+    // On repart d'une case propre : un créneau qui redevient « cette semaine »
+    // n'hérite pas d'une coche d'un passé qui n'a plus lieu d'être.
+    .map((s) =>
+      s.blocks?.some((b) => b.done)
+        ? { ...s, blocks: s.blocks.map((b) => ({ ...b, done: false })) }
+        : s,
+    );
+
+  return {
+    ...state,
+    weekPlan: {
+      ...wp,
+      slots,
+      landings: undefined,
+      weekOf: currentMonday,
+    },
+  };
 }
 
 // Nettoyage DÉTERMINISTE des doublons DANS chaque cap : deux flux (ou deux
