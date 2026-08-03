@@ -47,6 +47,13 @@ interface CarteProps {
   // par un sous-toggle interne.
   mode?: "chemins" | "semaines" | "planning";
   onSeeWeeks?: () => void;
+  onMoveSlot?: (
+    fromDay: string,
+    fromPart: string,
+    toDay: string,
+    toPart: string,
+    weekOffset: number,
+  ) => void;
 }
 
 export default function Carte(props: CarteProps) {
@@ -104,6 +111,7 @@ export default function Carte(props: CarteProps) {
           colorOf={(id) => capColor(props.objectives, id)}
           onGenerate={props.onGenerateWeek}
           generating={props.generatingWeek}
+          onMove={props.onMoveSlot}
         />
       ) : (
         <TimelineView
@@ -129,14 +137,38 @@ function WeekView({
   colorOf,
   onGenerate,
   generating,
+  onMove,
 }: {
   weekPlan?: WeekPlan;
   objectives: Objective[];
   colorOf: (id: string) => string;
   onGenerate?: () => void;
   generating?: boolean;
+  onMove?: (
+    fromDay: string,
+    fromPart: string,
+    toDay: string,
+    toPart: string,
+    weekOffset: number,
+  ) => void;
 }) {
   const [weekView, setWeekView] = useState<0 | 1>(0);
+  const [dragFrom, setDragFrom] = useState<{ day: string; part: string } | null>(
+    null,
+  );
+  // Poser les handlers de glisser-déposer sur une case (cible), et rendre une
+  // case pleine déplaçable. Déplacer = changer jour/moment (échange si occupé).
+  const dropProps = (day: string, part: string) =>
+    onMove
+      ? {
+          onDragOver: (e: React.DragEvent) => e.preventDefault(),
+          onDrop: (e: React.DragEvent) => {
+            e.preventDefault();
+            if (dragFrom) onMove(dragFrom.day, dragFrom.part, day, part, weekView);
+            setDragFrom(null);
+          },
+        }
+      : {};
   const objById = new Map(objectives.map((o) => [o.id, o]));
   const idx = todayDayIdx();
   // La semaine affichée : cette semaine (aujourd'hui + jours passés grisés) ou la
@@ -193,6 +225,11 @@ function WeekView({
             >
               Semaine prochaine
             </button>
+            {onMove && (
+              <span className="hidden items-center px-2 text-[0.7rem] text-faint sm:inline-flex">
+                Glisse une case pour la déplacer
+              </span>
+            )}
           </div>
 
           {!hasThisView ? (
@@ -248,6 +285,7 @@ function WeekView({
                       return (
                         <div
                           key={d}
+                          {...dropProps(d, part)}
                           className={`min-h-[6.5rem] rounded-xl border border-dashed ${
                             isToday ? "border-cap/30 bg-cap-soft/20" : "border-line/50"
                           } ${past ? "opacity-40" : ""}`}
@@ -259,9 +297,19 @@ function WeekView({
                     return (
                       <div
                         key={d}
+                        draggable={!!onMove}
+                        onDragStart={
+                          onMove ? () => setDragFrom({ day: d, part }) : undefined
+                        }
+                        onDragEnd={() => setDragFrom(null)}
+                        {...dropProps(d, part)}
                         className={`min-h-[6.5rem] overflow-hidden rounded-xl border-l-4 border border-line bg-surface px-2.5 py-2 shadow-sm ${
-                          past ? "opacity-45" : ""
-                        }`}
+                          onMove ? "cursor-grab active:cursor-grabbing" : ""
+                        } ${
+                          dragFrom?.day === d && dragFrom?.part === part
+                            ? "opacity-40 ring-2 ring-cap/40"
+                            : ""
+                        } ${past ? "opacity-45" : ""}`}
                         style={{ borderLeftColor: color }}
                       >
                         {/* Le cap, bien visible : icône + nom coloré */}

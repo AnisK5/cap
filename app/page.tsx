@@ -194,6 +194,31 @@ export default function Home() {
     [state, save],
   );
 
+  // Déplacer un créneau du Plan par glisser-déposer : on change son jour/moment ;
+  // si la case cible est occupée (même semaine), on échange les deux.
+  const onMoveSlot = useCallback(
+    (
+      fromDay: string,
+      fromPart: string,
+      toDay: string,
+      toPart: string,
+      weekOffset: number,
+    ) => {
+      const wp = state.weekPlan;
+      if (!wp || (fromDay === toDay && fromPart === toPart)) return;
+      const slots = wp.slots.map((s) => {
+        if ((s.weekOffset ?? 0) !== weekOffset) return s;
+        if (s.day === fromDay && s.part === fromPart)
+          return { ...s, day: toDay as typeof s.day, part: toPart as typeof s.part };
+        if (s.day === toDay && s.part === toPart)
+          return { ...s, day: fromDay as typeof s.day, part: fromPart as typeof s.part };
+        return s;
+      });
+      save({ ...state, weekPlan: { ...wp, slots } });
+    },
+    [state, save],
+  );
+
   // Cocher/décocher rétroactivement un créneau d'un jour PASSÉ : un oubli de
   // case ne doit pas figer un jour à jamais. On écrit dans l'historique, sur la
   // même liste que celle affichée (dayPlan si présent, sinon priorities).
@@ -470,6 +495,7 @@ export default function Home() {
           weekPlan={state.weekPlan}
           onGenerateWeek={generateWeek}
           generatingWeek={weekBusy}
+          onMoveSlot={onMoveSlot}
           mode="planning"
         />
       )}
@@ -799,187 +825,6 @@ function momentOf(dueBy?: string): Moment {
     return "soir";
   }
   return "flottant";
-}
-
-// La deadline du jour : une ancre douce (« avant midi »), pas un compte à rebours.
-function DueChip({ label, color }: { label: string; color?: string }) {
-  return (
-    <span
-      className="inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
-      style={{
-        borderColor: color ?? "var(--color-line)",
-        color: color ?? "var(--color-muted)",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function DayHero({
-  item,
-  priorities,
-  habits,
-  objById,
-  objectives,
-  onToggle,
-  justLanded,
-}: {
-  item: DayItem;
-  priorities: Priority[];
-  habits: Habit[] | undefined;
-  objById: Map<string, Objective>;
-  objectives: Objective[];
-  onToggle: () => void;
-  justLanded: boolean;
-}) {
-  const { objective, icon, color, isCap } = resolveDay(
-    item,
-    priorities,
-    habits,
-    objById,
-    objectives,
-  );
-  return (
-    <section
-      className={`relative overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-sm ${
-        justLanded ? "animate-rise" : "animate-fade"
-      }`}
-      style={{ borderLeft: `5px solid ${color}` }}
-    >
-      {icon && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -bottom-4 -right-2 select-none text-[6.5rem] opacity-[0.09]"
-        >
-          {icon}
-        </span>
-      )}
-
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-xs uppercase tracking-[0.15em] text-faint">
-              Maintenant
-            </span>
-            {item.dueBy && <DueChip label={item.dueBy} />}
-          </div>
-          <h2 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink sm:text-3xl">
-            {item.title}
-          </h2>
-          {item.why && (
-            <p className="mt-2.5 max-w-lg text-[1.02rem] leading-relaxed text-muted">
-              — {item.why}
-            </p>
-          )}
-          {isCap && objective ? (
-            <p className="mt-4 text-sm text-faint">
-              fait avancer&nbsp;:{" "}
-              <span className="font-medium" style={{ color }}>
-                {objective.icon && `${objective.icon} `}
-                {objective.title}
-              </span>
-            </p>
-          ) : (
-            <p className="mt-4 text-sm text-faint">
-              {item.kind === "habit" ? "ton rituel du jour" : "un rendez-vous à tenir"}
-            </p>
-          )}
-        </div>
-        <CheckCircle done={false} color={color} onToggle={onToggle} size="lg" />
-      </div>
-    </section>
-  );
-}
-
-function DayTimeline({
-  items,
-  priorities,
-  habits,
-  objById,
-  objectives,
-  onToggle,
-}: {
-  items: DayItem[];
-  priorities: Priority[];
-  habits: Habit[] | undefined;
-  objById: Map<string, Objective>;
-  objectives: Objective[];
-  onToggle: (item: DayItem) => void;
-}) {
-  // On regroupe la suite de la journée par MOMENT (matin · déjeuner · aprem ·
-  // soir), pour chunker le mur en îlots time-ancrés. L'ordre du coach est
-  // conservé À L'INTÉRIEUR d'un moment.
-  const byMoment = new Map<Moment, DayItem[]>();
-  for (const d of items) {
-    const key = momentOf(d.dueBy);
-    (byMoment.get(key) ?? byMoment.set(key, []).get(key)!).push(d);
-  }
-  const groups = MOMENTS.filter((m) => byMoment.get(m.key)?.length);
-
-  return (
-    <div className="mt-10 flex flex-col gap-6">
-      {groups.map((m) => (
-        <div key={m.key}>
-          {/* Séparateur de moment : discret, il fait office de coupure (le
-              « Midi · déjeuner » scinde naturellement matin et après-midi). */}
-          <p className="border-t border-line/60 pt-3 text-xs uppercase tracking-[0.18em] text-faint">
-            {m.label}
-          </p>
-          <ol className="mt-3 flex flex-col gap-2">
-            {byMoment.get(m.key)!.map((d) => {
-              const { icon, color, isCap } = resolveDay(
-                d,
-                priorities,
-                habits,
-                objById,
-                objectives,
-              );
-              return isCap ? (
-                // Projet : proéminent — c'est ce qui fait avancer un cap.
-                <li
-                  key={d.id}
-                  className="flex items-start gap-3 rounded-xl border border-line/70 bg-surface/60 px-4 py-3"
-                >
-                  <span
-                    className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: color }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="min-w-0 flex-1 leading-snug text-ink">
-                        {icon && <span className="mr-1">{icon}</span>}
-                        {d.title}
-                      </p>
-                      {d.dueBy && <DueChip label={d.dueBy} color={color} />}
-                    </div>
-                    {d.why && (
-                      <p className="mt-1 text-sm leading-snug text-faint">{d.why}</p>
-                    )}
-                  </div>
-                  <CheckCircle done={false} color={color} onToggle={() => onToggle(d)} />
-                </li>
-              ) : (
-                // Rituel / random : TRÈS discret — inline léger, sans carte, il
-                // s'efface en fond pour que les projets dominent l'œil.
-                <li key={d.id} className="flex items-center gap-2.5 px-1.5 py-1">
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />
-                  <p className="min-w-0 flex-1 truncate text-sm text-muted">
-                    {icon && <span className="mr-1 opacity-70">{icon}</span>}
-                    {d.title}
-                    {d.dueBy && (
-                      <span className="ml-2 text-xs text-faint">· {d.dueBy}</span>
-                    )}
-                  </p>
-                  <CheckCircle done={false} color={NEUTRAL} onToggle={() => onToggle(d)} />
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // Migration depuis l'ère localStorage : proposé une seule fois, quand le
