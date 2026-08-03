@@ -7,6 +7,7 @@ import {
   useCap,
 } from "@/lib/store";
 import { sameLocalDay } from "@/lib/merge";
+import { computeStreak } from "@/lib/streak";
 import type {
   CapState,
   ContextNote,
@@ -313,16 +314,9 @@ export default function Home() {
   const doneToday = hasDay
     ? doneBlocksToday + dayDone.filter((d) => !d.blocks?.length).length
     : doneItems.length;
-  const histForStreak = state.history ?? [];
-  let pastStreak = 0;
-  for (let i = histForStreak.length - 1; i >= 0; i--) {
-    const its = histForStreak[i].dayPlan?.length
-      ? histForStreak[i].dayPlan!
-      : histForStreak[i].priorities;
-    if (its.some((it) => it.done)) pastStreak++;
-    else break;
-  }
-  const streakToday = pastStreak + (doneToday > 0 ? 1 : 0);
+  // Série cohérente : jours calendaires consécutifs tenus, vérifiés par leur
+  // DATE (un jour sauté rompt la série). Aujourd'hui vient du direct.
+  const streakToday = computeStreak(state.history ?? [], doneToday);
   const anyFranchised = state.objectives.some((o) =>
     (o.steps ?? []).some((s) => s.done),
   );

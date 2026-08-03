@@ -103,6 +103,47 @@ export interface StoredSession {
   landed: boolean;
 }
 
+// Un résumé de session pour la liste « Historique » : de quoi afficher un jour
+// sans charger tout le fil. `preview` = le premier mot de la personne ce jour-là.
+export interface SessionSummary {
+  id: string;
+  startedAt: string;
+  updatedAt: string;
+  count: number;
+  preview: string;
+}
+
+// Les dernières sessions, du jour le plus récent au plus ancien, pour relire un
+// fil passé. On ne remonte que l'essentiel (id, dates, aperçu) — le fil complet
+// se charge à la demande via getSessionById.
+export async function listRecentSessions(
+  supabase: SupabaseClient,
+  userId: string,
+  limit = 30,
+): Promise<SessionSummary[]> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("id, started_at, updated_at, messages")
+    .eq("user_id", userId)
+    .order("started_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Lecture de l'historique : ${error.message}`);
+  return (data ?? [])
+    .map((row) => {
+      const messages = (row.messages ?? []) as ChatMessage[];
+      const firstUser = messages.find((m) => m.role === "user");
+      return {
+        id: row.id as string,
+        startedAt: row.started_at as string,
+        updatedAt: (row.updated_at ?? row.started_at) as string,
+        count: messages.length,
+        preview: (firstUser?.content ?? "").slice(0, 140),
+      };
+    })
+    // Un fil sans aucun message échangé n'a rien à relire.
+    .filter((s) => s.count > 0);
+}
+
 // La session ouverte « du jour » = non atterrie et récente (< 12 h) : c'est
 // elle qu'on reprend après un refresh. Fenêtre glissante plutôt que minuit —
 // le serveur déployé vit en UTC, pas dans le fuseau de la personne.

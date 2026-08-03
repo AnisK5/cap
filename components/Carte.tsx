@@ -1,7 +1,15 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Flow, FlowState, Habit, Objective, Step, WeekPlan } from "@/lib/types";
+import type {
+  Flow,
+  FlowState,
+  Habit,
+  Objective,
+  Step,
+  WeekPart,
+  WeekPlan,
+} from "@/lib/types";
 import { newId } from "@/lib/merge";
 import {
   DAY_KEYS,
@@ -112,6 +120,7 @@ export default function Carte(props: CarteProps) {
           onGenerate={props.onGenerateWeek}
           generating={props.generatingWeek}
           onMove={props.onMoveSlot}
+          habits={props.habits}
         />
       ) : (
         <TimelineView
@@ -131,6 +140,16 @@ export default function Carte(props: CarteProps) {
 // projection, qui reprend le rôle de la frise). Lecture seule, généré par le
 // coach, re-dérivable — jamais une grille qu'on remplit.
 // ─────────────────────────────────────────────────────────────────────────
+
+// Range un moment préféré libre (« matin », « fin de journée », « le soir »…)
+// dans l'une des trois demi-journées de la grille. Défaut : matin.
+function momentToPart(moment?: string): WeekPart {
+  const m = (moment ?? "").toLowerCase();
+  if (/soir|fin de journ|nuit|coucher|dodo/.test(m)) return "soir";
+  if (/midi|aprem|après-midi|apres-midi|aprèm|début d'aprem/.test(m)) return "aprem";
+  return "matin";
+}
+
 function WeekView({
   weekPlan,
   objectives,
@@ -138,6 +157,7 @@ function WeekView({
   onGenerate,
   generating,
   onMove,
+  habits,
 }: {
   weekPlan?: WeekPlan;
   objectives: Objective[];
@@ -151,7 +171,17 @@ function WeekView({
     toPart: string,
     weekOffset: number,
   ) => void;
+  habits?: Habit[];
 }) {
+  // Les rituels de fond, rangés par demi-journée d'après leur moment préféré :
+  // ils reviennent CHAQUE jour, on les montre donc une fois sous l'étiquette du
+  // moment plutôt que dans les 21 cases. Sans moment clair → au matin par défaut.
+  const habitsByPart: Record<WeekPart, Habit[]> = {
+    matin: [],
+    aprem: [],
+    soir: [],
+  };
+  for (const h of habits ?? []) habitsByPart[momentToPart(h.preferredMoment)].push(h);
   const [weekView, setWeekView] = useState<0 | 1>(0);
   const [dragFrom, setDragFrom] = useState<{ day: string; part: string } | null>(
     null,
@@ -274,8 +304,22 @@ function WeekView({
                   key={part}
                   className="mt-1.5 grid grid-cols-[2.8rem_repeat(7,minmax(9.5rem,1fr))] gap-1.5"
                 >
-                  <div className="flex items-center text-xs font-medium text-faint">
-                    {PART_SHORT[part]}
+                  <div className="flex flex-col justify-center gap-1 text-xs font-medium text-faint">
+                    <span>{PART_SHORT[part]}</span>
+                    {habitsByPart[part].length > 0 && (
+                      <div
+                        className="flex flex-wrap gap-0.5"
+                        title={habitsByPart[part]
+                          .map((h) => h.title)
+                          .join(" · ")}
+                      >
+                        {habitsByPart[part].map((h) => (
+                          <span key={h.id} className="text-[0.7rem] opacity-60">
+                            {h.icon ?? "•"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {DAY_KEYS.map((d, i) => {
                     const s = slotByKey.get(slotKey(d, part));
@@ -368,6 +412,31 @@ function WeekView({
             Les cases pointillées sont des plages libres, laissées exprès. Rien à
             y caser.
           </p>
+
+          {(habits?.length ?? 0) > 0 && (
+            <div className="mt-4 rounded-xl border border-line/60 bg-surface/40 px-3 py-2.5">
+              <p className="text-[0.68rem] uppercase tracking-[0.16em] text-faint">
+                En fond chaque jour
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+                {PARTS.filter((p) => habitsByPart[p].length > 0).map((p) => (
+                  <div key={p} className="flex items-baseline gap-1.5 text-[0.78rem]">
+                    <span className="text-faint">{PART_SHORT[p]}</span>
+                    {habitsByPart[p].map((h) => (
+                      <span key={h.id} className="text-muted">
+                        {h.icon && `${h.icon} `}
+                        {h.title}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[0.68rem] leading-snug text-faint">
+                Le plan se pose par-dessus — ces repères tiennent tout seuls, le
+                coach garde la place.
+              </p>
+            </div>
+          )}
 
           {weekView === 0 && weekPlan?.landings && weekPlan.landings.length > 0 && (
             <div className="mt-7">

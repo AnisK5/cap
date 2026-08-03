@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { ChatMessage } from "@/lib/types";
+import type { SessionSummary } from "@/lib/db";
 import type { StoredState } from "@/lib/store";
 
 export type LandedPayload = StoredState & { note?: string | null };
@@ -83,6 +84,13 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Historique : `history` = liste des fils passés (null = panneau fermé) ;
+  // `past` = un fil ancien ouvert en LECTURE SEULE (null = on est sur le jour).
+  const [history, setHistory] = useState<SessionSummary[] | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [past, setPast] = useState<{ id: string; messages: ChatMessage[] } | null>(
+    null,
+  );
   const started = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -182,6 +190,43 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
     }
   }, [assistantTurn]);
 
+  // Ouvre le panneau d'historique et charge la liste des fils passés.
+  const openHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/sessions");
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Historique indisponible.");
+      setHistory((j.sessions ?? []) as SessionSummary[]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  // Charge un fil passé en lecture seule (le fil du jour n'est pas touché).
+  const openPast = useCallback(async (id: string) => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/sessions?id=${id}`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Fil introuvable.");
+      setPast({ id, messages: (j.session?.messages ?? []) as ChatMessage[] });
+      setHistory(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const closePast = useCallback(() => setPast(null), []);
+
+  // Fil en lecture seule → on part du haut, pas du dernier message.
+  useLayoutEffect(() => {
+    if (past && scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [past]);
+
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || busy || !sessionId) return;
@@ -210,34 +255,63 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
   // Échap pour revenir à « Aujourd'hui » sans rien couper (le fil reste ouvert).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (active && e.key === "Escape") onClose();
+      if (!active || e.key !== "Escape") return;
+      // Échap referme d'abord ce qui est ouvert par-dessus le fil du jour.
+      if (history !== null) setHistory(null);
+      else if (past) setPast(null);
+      else onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, onClose]);
+  }, [active, onClose, history, past]);
 
   return (
     <div
       className={`${active ? "flex" : "hidden"} h-[calc(100dvh-13rem)] flex-col pb-[env(safe-area-inset-bottom)] sm:h-[calc(100dvh-18rem)]`}
     >
-      <div className="mb-2 flex items-center justify-between">
-        {day && day.length > 0 ? <DayStrip rows={day} /> : <span />}
-        <button
-          onClick={reset}
-          disabled={busy}
-          className="shrink-0 rounded-full px-3 py-1 text-xs text-faint transition-colors hover:text-ink disabled:opacity-30"
-        >
-          Recommencer
-        </button>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        {past ? (
+          <span className="min-w-0 flex-1 truncate text-xs uppercase tracking-[0.15em] text-faint">
+            Un fil passé · lecture seule
+          </span>
+        ) : day && day.length > 0 ? (
+          <DayStrip rows={day} />
+        ) : (
+          <span />
+        )}
+        {past ? (
+          <button
+            onClick={closePast}
+            className="shrink-0 rounded-full px-3 py-1 text-xs text-cap-ink transition-colors hover:text-ink"
+          >
+            ← Revenir au fil du jour
+          </button>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={openHistory}
+              className="rounded-full px-3 py-1 text-xs text-faint transition-colors hover:text-ink"
+            >
+              Historique
+            </button>
+            <button
+              onClick={reset}
+              disabled={busy}
+              className="rounded-full px-3 py-1 text-xs text-faint transition-colors hover:text-ink disabled:opacity-30"
+            >
+              Recommencer
+            </button>
+          </div>
+        )}
       </div>
 
       <div ref={scrollRef} className="w-full flex-1 overflow-y-auto pb-4">
         <div className="flex flex-col gap-6 py-4">
-          {messages.map((m, i) => {
+          {(past ? past.messages : messages).map((m, i, list) => {
             // Séparateur temporel quand un vrai laps s'est écoulé (reprise après
             // pause, nouveau jour) : sinon la reprise du coach se confond
             // visuellement avec ce qu'il venait de dire.
-            const sep = gapLabel(messages[i - 1]?.at, m.at);
+            const sep = gapLabel(list[i - 1]?.at, m.at);
             return (
               <Fragment key={i}>
                 {sep && (
@@ -247,7 +321,12 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
                     <span className="h-px flex-1 bg-line" />
                   </div>
                 )}
-                <Bubble role={m.role} content={m.content} at={m.at} busy={busy} />
+                <Bubble
+                  role={m.role}
+                  content={m.content}
+                  at={m.at}
+                  busy={past ? false : busy}
+                />
               </Fragment>
             );
           })}
@@ -259,33 +338,137 @@ export default function AuClair({ active, onClose, onUpdate, day }: Props) {
         </div>
       </div>
 
-      <div className="w-full pt-2">
-        <div className="flex items-end gap-3 rounded-2xl border border-line bg-surface p-2.5 shadow-sm">
-          <textarea
-            ref={inputRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            rows={1}
-            placeholder="Où t'en es, ce qui a bougé, ce qui te fait douter…"
-            className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2 text-ink placeholder:text-faint focus:outline-none"
-          />
+      {past ? (
+        <div className="w-full pt-2 text-center text-xs text-faint">
+          Tu relis un fil passé — reviens au fil du jour pour écrire.
+        </div>
+      ) : (
+        <div className="w-full pt-2">
+          <div className="flex items-end gap-3 rounded-2xl border border-line bg-surface p-2.5 shadow-sm">
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              rows={1}
+              placeholder="Où t'en es, ce qui a bougé, ce qui te fait douter…"
+              className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2 text-ink placeholder:text-faint focus:outline-none"
+            />
+            <button
+              onClick={send}
+              disabled={busy || !draft.trim()}
+              className="rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-canvas transition-opacity disabled:opacity-25"
+            >
+              Envoyer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {history !== null && (
+        <HistoryPanel
+          sessions={history}
+          loading={loadingHistory}
+          currentId={sessionId}
+          onPick={openPast}
+          onClose={() => setHistory(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Panneau d'historique : la liste des fils passés, du plus récent au plus
+// ancien. On clique un jour pour le relire ; le fil du jour n'est pas touché.
+function HistoryPanel({
+  sessions,
+  loading,
+  currentId,
+  onPick,
+  onClose,
+}: {
+  sessions: SessionSummary[];
+  loading: boolean;
+  currentId: string | null;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-ink/20 p-0 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[70dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-line bg-canvas p-4 shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm uppercase tracking-[0.15em] text-faint">
+            Fils passés
+          </h3>
           <button
-            onClick={send}
-            disabled={busy || !draft.trim()}
-            className="rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-canvas transition-opacity disabled:opacity-25"
+            onClick={onClose}
+            className="rounded-full px-2 py-1 text-xs text-faint hover:text-ink"
           >
-            Envoyer
+            Fermer
           </button>
         </div>
+        {loading ? (
+          <p className="py-8 text-center text-sm text-faint">…</p>
+        ) : sessions.length === 0 ? (
+          <p className="py-8 text-center text-sm text-faint">
+            Rien encore — tes fils passés s'afficheront ici.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {sessions.map((s) => (
+              <li key={s.id}>
+                <button
+                  onClick={() => onPick(s.id)}
+                  className="w-full rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium text-ink">
+                      {dayLabel(s.startedAt)}
+                      {s.id === currentId && (
+                        <span className="ml-2 text-xs font-normal text-cap-ink">
+                          · aujourd'hui
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-faint">
+                      {s.count} msg
+                    </span>
+                  </div>
+                  {s.preview && (
+                    <p className="mt-0.5 truncate text-xs text-muted">
+                      {s.preview}
+                    </p>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
+}
+
+// Un libellé de jour lisible pour l'historique (« lundi 28 juillet »).
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 }
 
 // « Ta journée » en SECONDAIRE : une bande discrète, repliée par défaut, qui ne
