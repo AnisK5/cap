@@ -503,7 +503,7 @@ export default function Home() {
           active={view === "clair"}
           onClose={() => setView("today")}
           onUpdate={onUpdate}
-          onWeekRolled={generateWeek}
+          onGenerateWeek={generateWeek}
           onOpenPlan={() => setView("plan")}
           weekPlan={state.weekPlan}
           objectives={state.objectives}

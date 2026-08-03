@@ -30,7 +30,7 @@ interface Props {
   active: boolean; // l'onglet « Au clair » est-il affiché ? (on démarre à ce moment)
   onClose: () => void;
   onUpdate: (s: LandedPayload) => void; // maj en direct de l'état après chaque tour
-  onWeekRolled?: () => void; // nouvelle semaine → reposer le plan (régénération)
+  onGenerateWeek?: () => void; // (re)générer la semaine par le chemin fiable (/api/week)
   onOpenPlan?: () => void; // « voir la semaine en entier » → onglet Plan
   weekPlan?: WeekPlan; // la semaine posée (pour la mini-carte inline)
   objectives?: Objective[]; // pour les icônes/couleurs des caps dans la carte
@@ -88,7 +88,7 @@ export default function AuClair({
   active,
   onClose,
   onUpdate,
-  onWeekRolled,
+  onGenerateWeek,
   onOpenPlan,
   weekPlan,
   objectives,
@@ -137,18 +137,24 @@ export default function AuClair({
   // on propage l'état au parent comme d'habitude.
   const applyReconciled = useCallback(
     (payload: LandedPayload, assistantText?: string) => {
+      onUpdate(payload);
       const sig = weekSig(payload.state.weekPlan);
-      // On montre la mini-carte quand il y a une semaine posée ET soit elle vient
-      // de changer, soit le coach vient d'en PARLER (tu demandes « on fait quoi
-      // cette semaine » → il la décrit → la carte l'accompagne, pas un pavé).
       const talksWeek = !!assistantText && /semaine|\bplan\b/i.test(assistantText);
+      // FILET DE SÉCURITÉ : le coach parle de la semaine mais la grille est VIDE
+      // (la réconciliation n'a rien extrait). On la génère par le chemin fiable
+      // pour que « c'est dans le Plan » soit VRAI — sinon le coach promet un vide.
+      if (talksWeek && !sig) {
+        onGenerateWeek?.();
+        return;
+      }
+      // Sinon, mini-carte quand une semaine est posée ET soit elle vient de
+      // changer, soit le coach vient d'en parler (aperçu visuel, pas un pavé).
       if (sig && (sig !== beforeWeekSig.current || talksWeek)) {
         const plan = payload.state.weekPlan;
         if (plan) setWeekCard({ after: msgLen.current - 1, plan });
       }
-      onUpdate(payload);
     },
-    [onUpdate],
+    [onUpdate, onGenerateWeek],
   );
 
   const appendDelta = useCallback((chunk: string) => {
@@ -211,7 +217,7 @@ export default function AuClair({
         if (state) onUpdate(state as LandedPayload);
         // Nouvelle semaine : la grille a été vidée → on repose la semaine à
         // partir du contexte actuel (le coach régénère), plutôt que de décaler.
-        if (weekRolled) onWeekRolled?.();
+        if (weekRolled) onGenerateWeek?.();
         setSessionId(session.id);
 
         const convo = (session.messages ?? []) as ChatMessage[];
@@ -235,7 +241,7 @@ export default function AuClair({
         setError((e as Error).message);
       }
     })();
-  }, [active, assistantTurn, onUpdate, onWeekRolled]);
+  }, [active, assistantTurn, onUpdate, onGenerateWeek]);
 
   // « Recommencer » : un nouveau fil (l'état n'est pas touché).
   const reset = useCallback(async () => {
