@@ -81,11 +81,55 @@ export function normalizeWeekPlan(
   raw: RawWeekPlan,
   objectives: { id: string; title: string }[],
 ): WeekPlan {
+  // Résolution TITRE → id TOLÉRANTE : le modèle reproduit rarement le titre au
+  // caractère près (emoji, accents, nom raccourci ou synonyme). Un match strict
+  // laissait tomber le créneau en silence → grille vide (« il le fait pas »). On
+  // tente, dans l'ordre : exact, normalisé (sans accent/emoji/ponct.), inclusion
+  // d'un sens ou l'autre, puis recouvrement de mots — mais UNIQUEMENT si le
+  // candidat est sans ambiguïté (un seul cap correspond), pour ne pas mal ranger.
+  const norm = (s: string): string =>
+    s
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const cand = objectives.map((o) => ({
+    id: o.id,
+    n: norm(o.title),
+    words: new Set(norm(o.title).split(" ").filter(Boolean)),
+  }));
   const idByTitle = new Map(
     objectives.map((o) => [o.title.trim().toLowerCase(), o.id]),
   );
-  const resolveId = (t?: string): string | undefined =>
-    t ? idByTitle.get(t.trim().toLowerCase()) : undefined;
+  const resolveId = (t?: string): string | undefined => {
+    if (!t) return undefined;
+    const exact = idByTitle.get(t.trim().toLowerCase());
+    if (exact) return exact;
+    const nt = norm(t);
+    if (!nt) return undefined;
+    const nExact = cand.filter((c) => c.n === nt);
+    if (nExact.length === 1) return nExact[0].id;
+    const subs = cand.filter((c) => c.n && (c.n.includes(nt) || nt.includes(c.n)));
+    if (subs.length === 1) return subs[0].id;
+    // Recouvrement de mots : le cap qui partage le PLUS de mots, s'il est unique.
+    const tw = new Set(nt.split(" ").filter(Boolean));
+    let best: { id: string; score: number } | null = null;
+    let tie = false;
+    for (const c of cand) {
+      let score = 0;
+      for (const w of tw) if (c.words.has(w)) score++;
+      if (score > 0 && (!best || score > best.score)) {
+        best = { id: c.id, score };
+        tie = false;
+      } else if (best && score === best.score && score > 0 && c.id !== best.id) {
+        tie = true;
+      }
+    }
+    return best && !tie ? best.id : undefined;
+  };
 
   const idx = todayDayIdx();
   // Cette semaine : pas de jour passé. Semaine prochaine (offset 1) : tous les jours.

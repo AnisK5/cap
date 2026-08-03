@@ -503,6 +503,9 @@ export default function Home() {
           onClose={() => setView("today")}
           onUpdate={onUpdate}
           onWeekRolled={generateWeek}
+          onOpenPlan={() => setView("plan")}
+          weekPlan={state.weekPlan}
+          objectives={state.objectives}
           day={chatDay}
         />
       </div>

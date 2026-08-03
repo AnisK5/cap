@@ -8,9 +8,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, Objective, WeekPlan } from "@/lib/types";
 import type { SessionSummary } from "@/lib/db";
 import type { StoredState } from "@/lib/store";
+import { DAY_KEYS, DAY_SHORT } from "@/lib/week";
+import { capColor } from "@/components/CapTrack";
 
 export type LandedPayload = StoredState & { note?: string | null };
 
@@ -29,6 +31,9 @@ interface Props {
   onClose: () => void;
   onUpdate: (s: LandedPayload) => void; // maj en direct de l'état après chaque tour
   onWeekRolled?: () => void; // nouvelle semaine → reposer le plan (régénération)
+  onOpenPlan?: () => void; // « voir la semaine en entier » → onglet Plan
+  weekPlan?: WeekPlan; // la semaine posée (pour la mini-carte inline)
+  objectives?: Objective[]; // pour les icônes/couleurs des caps dans la carte
   day?: DayRow[];
 }
 
@@ -84,6 +89,9 @@ export default function AuClair({
   onClose,
   onUpdate,
   onWeekRolled,
+  onOpenPlan,
+  weekPlan,
+  objectives,
   day,
 }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -98,6 +106,15 @@ export default function AuClair({
   const [past, setPast] = useState<{ id: string; messages: ChatMessage[] } | null>(
     null,
   );
+  // Mini-carte de semaine inline : quand un tour du coach vient de poser / changer
+  // la semaine, on l'affiche sous CE message (index ancré) plutôt qu'un pavé.
+  const [weekCard, setWeekCard] = useState<{ after: number; plan: WeekPlan } | null>(
+    null,
+  );
+  // Signature de la semaine AVANT le tour en cours : on la fige juste avant
+  // d'envoyer, et on compare après réconciliation — un changement ⇒ carte.
+  const beforeWeekSig = useRef<string | null>(null);
+  const msgLen = useRef(0);
   const started = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -108,6 +125,27 @@ export default function AuClair({
   }, []);
 
   useLayoutEffect(scrollDown, [messages, scrollDown]);
+
+  // On garde le nombre de messages sous la main (ref) pour ancrer la mini-carte
+  // sous le DERNIER message au moment où la semaine est posée.
+  useEffect(() => {
+    msgLen.current = messages.length;
+  }, [messages]);
+
+  // Après réconciliation : si la semaine (créneaux de cette semaine) a changé sur
+  // ce tour, on affiche la mini-carte sous le dernier message — sinon rien. Puis
+  // on propage l'état au parent comme d'habitude.
+  const applyReconciled = useCallback(
+    (payload: LandedPayload) => {
+      const sig = weekSig(payload.state.weekPlan);
+      if (sig && sig !== beforeWeekSig.current) {
+        const plan = payload.state.weekPlan;
+        if (plan) setWeekCard({ after: msgLen.current - 1, plan });
+      }
+      onUpdate(payload);
+    },
+    [onUpdate],
+  );
 
   const appendDelta = useCallback((chunk: string) => {
     setMessages((m) => {
@@ -126,20 +164,21 @@ export default function AuClair({
   const assistantTurn = useCallback(
     (sid: string, convo: ChatMessage[], extra: object) => {
       setError(null);
+      beforeWeekSig.current = weekSig(weekPlan); // état de la semaine avant ce tour
       setMessages([
         ...convo,
         { role: "assistant", content: "", at: new Date().toISOString() },
       ]);
       setBusy(true);
       streamChat({ sessionId: sid, messages: convo, ...extra }, appendDelta)
-        .then(() => reconcile(sid).then(onUpdate).catch(() => {}))
+        .then(() => reconcile(sid).then(applyReconciled).catch(() => {}))
         .catch((e) => setError((e as Error).message))
         .finally(() => {
           setBusy(false);
           inputRef.current?.focus();
         });
     },
-    [appendDelta, onUpdate],
+    [appendDelta, applyReconciled, weekPlan],
   );
 
   // Au premier affichage de l'onglet : récupère le FIL DU JOUR (modèle compagnon).
@@ -250,20 +289,21 @@ export default function AuClair({
       ...messages,
       { role: "user", content: text, at: now },
     ];
+    beforeWeekSig.current = weekSig(weekPlan); // état de la semaine avant ce tour
     setMessages([...convo, { role: "assistant", content: "", at: now }]);
     setBusy(true);
     try {
       await streamChat({ sessionId, messages: convo }, appendDelta);
       // Tout se commit en direct : le serveur relit le fil, fusionne (carte +
       // priorités + journée) et renvoie l'état à jour, qu'on reflète aussitôt.
-      reconcile(sessionId).then(onUpdate).catch(() => {});
+      reconcile(sessionId).then(applyReconciled).catch(() => {});
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [draft, busy, sessionId, messages, appendDelta, onUpdate]);
+  }, [draft, busy, sessionId, messages, appendDelta, applyReconciled, weekPlan]);
 
   // Échap pour revenir à « Aujourd'hui » sans rien couper (le fil reste ouvert).
   useEffect(() => {
@@ -340,6 +380,13 @@ export default function AuClair({
                   at={m.at}
                   busy={past ? false : busy}
                 />
+                {!past && weekCard?.after === i && (
+                  <WeekCardInline
+                    plan={weekCard.plan}
+                    objectives={objectives ?? []}
+                    onOpen={onOpenPlan}
+                  />
+                )}
               </Fragment>
             );
           })}
@@ -518,6 +565,80 @@ function DayStrip({ rows }: { rows: DayRow[] }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// Signature des créneaux de CETTE semaine (offset 0) : sert à détecter qu'un
+// tour du coach a posé/changé la semaine. null si rien de posé cette semaine.
+function weekSig(wp?: WeekPlan): string | null {
+  if (!wp) return null;
+  const slots = wp.slots.filter((s) => (s.weekOffset ?? 0) === 0);
+  if (slots.length === 0) return null;
+  return slots
+    .map((s) => `${s.day}-${s.part}-${s.objectiveId}-${s.goal ?? ""}`)
+    .sort()
+    .join("|");
+}
+
+// La mini-carte de semaine, inline dans le chat : un aperçu visuel compact (les
+// 7 jours × leurs caps placés) à la place d'un pavé de texte. Le détail complet
+// vit dans l'onglet Plan — d'où le lien « voir en entier ».
+const PART_ORDER: Record<string, number> = { matin: 0, aprem: 1, soir: 2 };
+function WeekCardInline({
+  plan,
+  objectives,
+  onOpen,
+}: {
+  plan: WeekPlan;
+  objectives: Objective[];
+  onOpen?: () => void;
+}) {
+  const objById = new Map(objectives.map((o) => [o.id, o]));
+  const slots = plan.slots.filter((s) => (s.weekOffset ?? 0) === 0);
+  return (
+    <div className="animate-rise max-w-[92%] self-start rounded-2xl border border-line bg-surface/60 px-3 py-3 shadow-sm">
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {DAY_KEYS.map((day) => {
+          const daySlots = slots
+            .filter((s) => s.day === day)
+            .sort((a, b) => (PART_ORDER[a.part] ?? 0) - (PART_ORDER[b.part] ?? 0));
+          return (
+            <div key={day} className="min-w-0">
+              <div className="text-[0.6rem] uppercase tracking-wide text-faint">
+                {DAY_SHORT[day]}
+              </div>
+              <div className="mt-1 flex flex-col items-center gap-1">
+                {daySlots.length === 0 ? (
+                  <span className="text-faint/30">·</span>
+                ) : (
+                  daySlots.map((s, i) => {
+                    const o = objById.get(s.objectiveId);
+                    return (
+                      <span
+                        key={i}
+                        title={`${o?.title ?? ""}${s.goal ? " — " + s.goal : ""}`}
+                        className="text-base leading-none"
+                        style={{ color: capColor(objectives, s.objectiveId) }}
+                      >
+                        {o?.icon ?? "•"}
+                      </span>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {onOpen && (
+        <button
+          onClick={onOpen}
+          className="mt-2.5 text-[0.72rem] font-medium text-cap-ink transition-colors hover:text-ink"
+        >
+          Voir la semaine en entier →
+        </button>
       )}
     </div>
   );
