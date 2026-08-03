@@ -61,7 +61,11 @@ export async function POST(req: Request) {
     const before = await getState(supabase, user.id);
     const res = await client.messages.create({
       model: RECONCILE_MODEL,
-      max_tokens: 2000,
+      // Marge large : la réconciliation ré-émet parfois l'état complet (caps +
+      // semaine complète + journée) ; à 2000 le tool_use pouvait être tronqué
+      // (JSON partiel → extraction perdue, dont la semaine). On ne paie que ce
+      // qui est produit, la sortie est bornée par le schéma de l'outil.
+      max_tokens: 6000,
       // Instruction + outil sont statiques → mis en cache (l'état/le transcript,
       // volatils, sont dans le message user, après le préfixe caché).
       system: [

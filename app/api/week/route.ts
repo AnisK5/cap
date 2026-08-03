@@ -50,7 +50,11 @@ NOUS SOMMES ${todayLabel}. Pose la forme de ma semaine, du jour présent (${DAY_
   try {
     const res = await client.messages.create({
       model: CHAT_MODEL,
-      max_tokens: 1500,
+      // Opus 5 RÉFLÉCHIT avant d'appeler l'outil, et ces jetons comptent dans
+      // max_tokens : à 1500, la réflexion mangeait TOUT le budget → l'appel
+      // d'outil ne sortait jamais (stop_reason "max_tokens", 0 créneau) → grille
+      // TOUJOURS vide. C'était LA cause du « Proposer la semaine » qui foire.
+      max_tokens: 6000,
       system: [
         {
           type: "text",
